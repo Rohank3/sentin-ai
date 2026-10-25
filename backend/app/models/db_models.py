@@ -1,8 +1,15 @@
+"""SQLAlchemy Database Models for Sentin AI.
+
+Defines persistence schemas for sellers, disputes, customers, and audit trails.
+"""
+
 from datetime import datetime, timezone
 import uuid
-from typing import Optional, Any, Dict
-from sqlalchemy import String, Float, Boolean, DateTime, ForeignKey, Text, JSON
+from typing import Optional, Dict, Any
+
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.core.database import Base
 
 def generate_uuid() -> str:
@@ -27,11 +34,11 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    paypal_payer_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    full_name: Mapped[str] = mapped_column(String(255), default="Verified Buyer")
-    total_spend: Mapped[float] = mapped_column(Float, default=0.0)
-    order_count: Mapped[int] = mapped_column(default=0)
-    dispute_count: Mapped[int] = mapped_column(default=0)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dispute_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_orders: Mapped[int] = mapped_column(Integer, default=1)
     risk_score: Mapped[float] = mapped_column(Float, default=0.1)  # 0.0 to 1.0
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -62,13 +69,18 @@ class Dispute(Base):
 
     seller: Mapped["Seller"] = relationship("Seller", back_populates="disputes")
     customer: Mapped["Customer"] = relationship("Customer", back_populates="disputes")
-    audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", back_populates="dispute")
+    audit_logs: Mapped[list["AuditLog"]] = relationship(
+        "AuditLog",
+        back_populates="dispute",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    dispute_id: Mapped[str] = mapped_column(String(36), ForeignKey("disputes.id"), nullable=False)
+    dispute_id: Mapped[str] = mapped_column(String(36), ForeignKey("disputes.id", ondelete="CASCADE"), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     details: Mapped[str] = mapped_column(Text, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
