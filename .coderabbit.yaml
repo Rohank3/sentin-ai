@@ -1,0 +1,37 @@
+# CodeRabbit Configuration for Sentin AI (PayPal AI Hackathon 2026)
+# Documentation: https://docs.coderabbit.ai/
+
+language: "en-US"
+early_access: false
+tone_instructions: "You are an expert senior fintech security architect and hackathon judge reviewing code for the PayPal AI Hackathon 2026."
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - ".*"
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/.next/**"
+    - "!**/__pycache__/**"
+    - "!**/dist/**"
+    - "!**/*.lock"
+
+  path_instructions:
+    - path: "backend/**"
+      instructions: "Verify strict Pydantic schemas, async SQLAlchemy conventions, and resilient fallbacks in PayPal and Gemini clients so external outages do not crash demos."
+    - path: "frontend/**"
+      instructions: "Ensure strict TypeScript interfaces, responsive mobile-first Tailwind styling, and resilient UI states (loading skeletons, empty states, error handling)."
+    - path: ".contracts/**"
+      instructions: "Verify that contract files match AGENT_RULES.md and that interface changes are properly logged."
+
+chat:
+  auto_reply: true

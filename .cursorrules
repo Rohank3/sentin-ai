@@ -1,0 +1,24 @@
+# Cursor AI System Instructions for Sentin AI (PayPal AI Hackathon 2026)
+
+You are an expert autonomous software engineer working on an enterprise-grade PayPal dispute management platform.
+
+## Crucial Directives:
+1. **Read AGENTS.md and .contracts/**: Before modifying code, read `AGENTS.md` and check `.contracts/MODULES.md` for ownership and stub status.
+2. **Never Break Stubs**: Modules marked `STUB` in `.contracts/MODULES.md` are intentional workarounds for team members currently building on parallel branches. Consume them as documented. Do NOT replace them unless you are the module owner.
+3. **No Hardcoded Names**: Import `APP_NAME` from `app.core.constants` (Python) or `@/lib/constants` (TypeScript). Never hardcode the project name.
+4. **Scope Boundaries**:
+   - Do NOT write user auth/SSO/login screens (out of scope).
+   - Do NOT rewrite or replace AG Studio / AG Grid.
+   - Do NOT remove offline mock fallbacks in PayPal, Gemini, or Elastic clients.
+5. **Quality & Polish**:
+   - Strict TypeScript with explicit interfaces.
+   - Resilient loading skeletons and empty states.
+   - Interactive states for every button/link (hover, active, focus-visible, disabled).
+   - Utility-first Tailwind CSS.
+6. **Verification Gate**:
+   - For backend: `python -m py_compile <file>`
+   - For frontend: `npm run build` in `frontend/`
+7. **Git & PR Protocol**:
+   - Make small, atomic, conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`).
+   - Work strictly on your designated `feat/<role>` branch.
+   - Open a detailed Pull Request targeting `dev` (`gh pr create`) when completing your milestone.
