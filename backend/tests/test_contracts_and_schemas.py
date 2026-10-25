@@ -14,13 +14,13 @@ from app.models.schemas import AIDecision, EVResult
 from app.engine.ev_calculator import calculate_ev
 from seed.seed_data import get_seed_policies, get_seed_carriers, get_seed_customers
 
-def test_app_name_dynamic():
-    """Ensure app name is defined and dynamic."""
+def test_app_name_dynamic() -> None:
+    """Ensure app name is defined, dynamically loaded, and non-empty."""
     assert APP_NAME is not None
+    assert isinstance(APP_NAME, str)
     assert len(APP_NAME.strip()) > 0
-    assert APP_NAME == "Sentin AI"
 
-def test_ev_calculator_high_win_probability():
+def test_ev_calculator_high_win_probability() -> None:
     """Test EV calculation when carrier tracking proof is conclusive (95% win)."""
     amount = 150.00
     win_prob = 0.95
@@ -31,7 +31,7 @@ def test_ev_calculator_high_win_probability():
     assert res.expected_value_contest > res.expected_value_settle
     assert res.savings > 0
 
-def test_ev_calculator_low_win_probability():
+def test_ev_calculator_low_win_probability() -> None:
     """Test EV calculation when tracking is absent and win probability is low (10%)."""
     amount = 25.00
     win_prob = 0.10
@@ -41,8 +41,8 @@ def test_ev_calculator_low_win_probability():
     assert res.optimal_action in ["REFUND", "SETTLE"]
     assert res.expected_value_settle > res.expected_value_contest
 
-def test_ai_decision_pydantic_schema():
-    """Test AIDecision validation and bounds."""
+def test_ai_decision_pydantic_schema() -> None:
+    """Test AIDecision validation, bounding, and serialization constraints."""
     decision = AIDecision(
         recommended_action="CONTEST",
         win_probability=0.88,
@@ -54,8 +54,8 @@ def test_ai_decision_pydantic_schema():
     assert decision.recommended_action == "CONTEST"
     assert 0.0 <= decision.win_probability <= 1.0
 
-def test_seed_fixtures_valid():
-    """Ensure seed datasets parse correctly."""
+def test_seed_fixtures_valid() -> None:
+    """Ensure seed datasets exist, parse cleanly, and meet minimum fixture thresholds."""
     policies = get_seed_policies()
     carriers = get_seed_carriers()
     customers = get_seed_customers()

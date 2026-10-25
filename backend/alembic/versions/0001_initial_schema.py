@@ -15,6 +15,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
+    """Create initial tables for sellers, customers, disputes, and audit logs."""
     # 1. Sellers table
     op.create_table(
         'sellers',
@@ -32,16 +33,17 @@ def upgrade() -> None:
     op.create_table(
         'customers',
         sa.Column('id', sa.String(length=36), nullable=False),
+        sa.Column('paypal_payer_id', sa.String(length=100), nullable=False),
         sa.Column('email', sa.String(length=255), nullable=False),
-        sa.Column('full_name', sa.String(length=255), nullable=False),
-        sa.Column('total_spend', sa.Float(), nullable=False),
-        sa.Column('order_count', sa.Integer(), nullable=False),
+        sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('dispute_count', sa.Integer(), nullable=False),
+        sa.Column('total_orders', sa.Integer(), nullable=False),
         sa.Column('risk_score', sa.Float(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('email')
     )
+    op.create_index(op.f('ix_customers_paypal_payer_id'), 'customers', ['paypal_payer_id'], unique=True)
 
     # 3. Disputes table
     op.create_table(
@@ -80,6 +82,7 @@ def upgrade() -> None:
     )
 
 def downgrade() -> None:
+    """Drop initial tables in reverse dependency order."""
     op.drop_table('audit_logs')
     op.drop_index(op.f('ix_disputes_paypal_dispute_id'), table_name='disputes')
     op.drop_table('disputes')

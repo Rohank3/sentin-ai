@@ -16,11 +16,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-def get_url():
+def get_url() -> str:
+    """Retrieve async database connection URL from application settings."""
     return settings.database_url
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
+    """Run migrations in 'offline' mode without an active engine connection."""
     url = get_url()
     context.configure(
         url=url,
@@ -33,13 +34,14 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 def do_run_migrations(connection: Connection) -> None:
+    """Apply schema migrations against an established database connection."""
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
         context.run_migrations()
 
 async def run_async_migrations() -> None:
-    """Run migrations in 'online' mode with async engine."""
+    """Run migrations in 'online' mode using the async SQLAlchemy engine."""
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = get_url()
 
@@ -55,7 +57,7 @@ async def run_async_migrations() -> None:
     await connectable.dispose()
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
+    """Entry point for online migrations that invokes the async execution loop."""
     asyncio.run(run_async_migrations())
 
 if context.is_offline_mode():
