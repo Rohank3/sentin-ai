@@ -8,7 +8,7 @@ All interface modifications, schema migrations, and architecture pivots must be 
 - Fixed bidirectional relationship mapping between `Dispute` and `Customer` (`back_populates="disputes"`).
 - Registered models prior to `Base.metadata.create_all` in `init_db()` and decoupled seller/customer seeding with idempotent key checks.
 - Added `sellers.json` seed fixtures and `seed_database()` routine for automated DB initialization.
-- Hardened `docker-compose.yml` with optional `backend/.env` parsing and container network environment defaults (`DATABASE_URL`, `ELASTIC_URL`).
+- Hardened `docker-compose.yml` with tiered `env_file` layering (`backend/.env.docker` container defaults overridden by optional `backend/.env`), preserving custom URLs while preventing localhost fallback when `.env` is absent.
 - Expanded contract and schema unit tests from 5 to 8 tests covering schema parsing and customer fixture constraints.
 
 ## [2026-10-25] Initial System Scaffold & Contract Freeze
