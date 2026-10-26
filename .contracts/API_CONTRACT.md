@@ -191,7 +191,9 @@ Get dashboard-level aggregate statistics.
 
 #### `POST /api/simulate`
 
-Create a dispute in the PayPal sandbox for demo purposes.
+Create a local, explicitly simulated dispute for demo purposes. This endpoint does
+not create a PayPal case. IDs start with `SIM-`; all subsequent PayPal operations
+on those IDs stay simulated even when sandbox credentials are configured.
 
 **Request Body:**
 ```json
@@ -220,7 +222,7 @@ Create a dispute in the PayPal sandbox for demo purposes.
   "paypal_dispute_id": "PP-D-xxxxx",
   "scenario_type": "INR_WITH_TRACKING",
   "status": "CREATED",
-  "message": "Sandbox dispute created. Triage triggered automatically."
+  "message": "Local simulation created. Triage completed. No PayPal case was created."
 }
 ```
 
@@ -295,6 +297,35 @@ API Welcome overview and documentation links.
 ---
 
 ## Error Responses
+
+### PayPal integration behavior (2026-10-26)
+
+- Existing client method signatures remain supported. `create_refund` additionally
+  accepts optional `request_id: str | None` for caller-controlled idempotency.
+  Without it, one deterministic key per seller/capture/amount/currency is used;
+  distinct intentional partial refunds of the same amount need distinct keys.
+- `verify_webhook_signature(headers: Mapping[str, str], event: dict) -> bool`
+  verifies with PayPal using `PAYPAL_WEBHOOK_ID`. Verification never uses mock success.
+- `PAYPAL_SELLER_ID` (default `seller_acme`) maps the configured default app/webhook
+  to a local seller; other seller credentials are loaded from the Seller table.
+  Unknown sellers and incomplete credential pairs never use another seller's app.
+- `PAYPAL_WEBHOOK_ID` (default unset) is required for the webhook endpoint.
+  Missing configuration returns 503; missing/invalid signatures return 401;
+  invalid payloads return 400; unavailable PayPal returns 502/503. These use
+  FastAPI's `{"detail": "..."}` error envelope, as do the existing routes.
+- Valid unsupported event types return `status: ignored`. Recognized events return
+  `received`; duplicate event IDs return `duplicate`. CREATED/UPDATED upsert by
+  PayPal dispute ID; RESOLVED closes the existing record. Stale timestamps cannot
+  reopen resolved records. Replay protection/storage is process-local, matching
+  the existing dispute repository; persistent ingestion is a scaffold follow-up.
+- Webhook ingestion does not call the current stub triage automatically: it uses
+  fabricated tracking and a dispute ID as a capture ID. It records a pending
+  integration audit entry until the owner connects verified transaction evidence.
+- Missing default credentials enable clearly marked offline client responses.
+  Configured API failures return controlled errors, never simulated success.
+  The simulator continues offline regardless of external credentials.
+- Refunds require a capture ID, never a PayPal dispute ID. Monetary values must
+  be finite, positive and use the supported currency's precision.
 
 All errors follow this format:
 

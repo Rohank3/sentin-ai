@@ -20,9 +20,9 @@
 | Schemas | `backend/app/models/schemas.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | Pydantic request/response models |
 | Main App | `backend/app/main.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | FastAPI entrypoint with CORS + routers |
 | Disputes API | `backend/app/api/routes_disputes.py` | Tech Lead | **STUB** | `feat/core-scaffold` | `[]` empty list | CRUD + triage trigger endpoints |
-| Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **STUB** | `feat/paypal-integration` | `200 OK` | PayPal webhook receiver |
-| Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STUB** | `feat/paypal-integration` | Sample dispute JSON | Sandbox dispute creation |
-| PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **STUB** | `feat/paypal-integration` | Mock dispute data | Per-seller OAuth2 + Disputes API |
+| Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **WIP** | `feat/paypal-integration` | None | Verified ingestion; process-local persistence; real triage handoff pending |
+| Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STABLE** | `feat/paypal-integration` | Explicit SIM- demo records | Local scenarios; preserves other owners' triage interface |
+| PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **WIP** | `feat/paypal-integration` | Marked simulated responses | OAuth2, evidence, claims, refunds, signatures tested offline; sandbox acceptance pending |
 | AI Agent | `backend/app/engine/agent.py` | AI Dev | **STUB** | `feat/ai-engine` | Hardcoded `AIDecision` | Gemini 2.0 Flash evaluator |
 | EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **WIP** | `feat/ai-engine` | Correct EV formula | Pure math, no external deps |
 | RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **STUB** | `feat/ai-engine` | Hardcoded policy text | Elastic hybrid search |
