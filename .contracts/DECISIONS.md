@@ -48,70 +48,64 @@
 - **Decision:** Elasticsearch 8.x with hybrid search (keyword + vector)
 - **Rationale:** Hybrid search for policies + PoD records. Elastic sponsor prize eligible. Real product value for dispute context retrieval.
 - **Timeline:**
-  - Oct 25 – Nov 5: Docker locally (`docker.elastic.co/elasticsearch/elasticsearch:8.15.0`)
-  - Nov 5: Start Elastic Cloud 14-day free trial
-  - Nov 19: Request 30-day extension → expires Dec 19
-  - Dec 1–15: Judging period fully covered
-- **Fallback:** SQLite + NumPy cosine similarity (always present in `rag_store.py`)
-- **Impacted Modules:** `rag_store.py`, `config.py`
-- **Env Var:** `ELASTIC_URL` (default: `http://localhost:9200`)
+  - Oct 25-27: Local SQLite + in-memory vector fallback (in `rag_store.py`)
+  - Oct 28-30: Docker Compose Elasticsearch container
+  - Nov 1-12: Full hybrid search integration
+- **Impacted Modules:** `rag_store.py`, `docker-compose.yml`
 
 ---
 
-## DEC-004: Primary Database
+## DEC-004: Frontend Framework
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** PostgreSQL 16 via Docker locally, Render free Postgres for production
-- **Rationale:** Same engine in dev and prod = zero compatibility bugs. Docker Compose provides identical environments.
-- **Impacted Modules:** `database.py`, `db_models.py`, `config.py`
-- **Env Var:** `DATABASE_URL` (default: `postgresql+asyncpg://dev:dev@localhost:5432/sentin_ai`)
+- **Decision:** Next.js 14 (App Router) + TypeScript + Tailwind CSS
+- **Rationale:** React ecosystem for AG Grid/AG Studio. TypeScript for contract safety with backend. Tailwind for rapid styling.
+- **Impacted Modules:** All frontend modules
+- **Alternatives Considered:** Vite + React (rejected: Next.js gives SSR, API routes for proxy, better deployment on Vercel/Render)
 
 ---
 
-## DEC-005: ORM
+## DEC-005: Grid Component
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** SQLAlchemy 2.0 with async support via `asyncpg`
-- **Rationale:** Mature, well-documented, FastAPI-native async, excellent Postgres support.
-- **Impacted Modules:** `database.py`, `db_models.py`, all route files
-- **Packages:** `sqlalchemy[asyncio]`, `asyncpg`, `alembic`
+- **Decision:** AG Studio embedded inside Next.js dashboard
+- **Rationale:** $9K AG Grid sponsor prize track. Real-time dispute filtering, custom cell renderers (status badges, confidence bars), action buttons.
+- **Package:** `ag-grid-react` + `ag-grid-community`
+- **Impacted Modules:** `DisputeStudio.tsx`, `package.json`
 
 ---
 
-## DEC-006: Frontend Grid
+## DEC-006: Decision Formula
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** AG Studio React (`ag-studio-react`) with Studio Agent Framework
-- **Rationale:** AG Grid sponsor prize ($9K) requires AG Studio. Studio Agent Framework lets merchants ask natural-language questions about disputes.
-- **Package:** `npm install ag-studio-react`
-- **Impacted Modules:** `DisputeStudio.tsx`
+- **Decision:** Mathematical Expected Value (EV) calculation with configurable risk tolerance
+- **Formula:**
+  $$\text{EV}(\text{Contest}) = P(\text{win}) \cdot (\text{Amount}) - (1 - P(\text{win})) \cdot (\text{Amount} + \text{DisputeFee}) - \text{LaborCost}$$
+  $$\text{EV}(\text{Settle/Refund}) = -\text{Amount}$$
+  $$\text{Optimal Action} = \arg\max(\text{EV}(\text{Contest}), \text{EV}(\text{Settle}))$$
+- **Rationale:** Gives judges concrete math rather than black-box AI decisions. Explainable, auditable, mathematically optimal.
+- **Impacted Modules:** `ev_calculator.py`, `agent.py`
 
 ---
 
-## DEC-007: AI Autonomy Model
+## DEC-007: Human-in-the-Loop Thresholds
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** AI decides `auto_execute: boolean` based on full context
-- **Rationale:** More agentic approach. AI receives amount, win probability, customer history, dispute reason, and outputs whether to auto-execute or require human approval.
-- **Impacted Modules:** `agent.py`, `ev_calculator.py`, `routes_disputes.py`
-- **AI Output Schema:**
-  ```python
-  class AIDecision(BaseModel):
-      recommended_action: Literal["CONTEST", "SETTLE", "REFUND"]
-      win_probability: float  # 0.0 to 1.0
-      expected_value: float
-      reasoning: str
-      auto_execute: bool
-      confidence_factors: list[str]
-  ```
+- **Decision:** Automatic execution ONLY if:
+  - `amount <= MAX_AUTO_EXECUTE_AMOUNT` (default $100)
+  - `win_probability >= MIN_AUTO_EXECUTE_WIN_PROB` (default 0.70)
+  - `customer_risk_score <= MAX_CUSTOMER_RISK_SCORE` (default 0.50)
+  - All others route to `status = "UNDER_REVIEW"` for supervisor sign-off via AG Studio
+- **Rationale:** Risk mitigation. Prevents AI from auto-contesting high-value claims or auto-refunding fraud rings.
+- **Impacted Modules:** `agent.py`, `routes_disputes.py`, `DisputeStudio.tsx`
 
 ---
 
-## DEC-008: Multi-Seller Marketplace
+## DEC-008: Multi-Seller Support
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
@@ -151,3 +145,47 @@
 - **Decision:** REST API with OpenAPI auto-docs
 - **Rationale:** FastAPI auto-generates interactive docs at `/docs`. Frontend team uses this as the living API contract. AG Studio can consume REST endpoints.
 - **Impacted Modules:** All route files, `api.ts`
+
+---
+
+## DEC-012: Policy & PoD Knowledge Base Architecture
+
+- **Status:** `ACTIVE`
+- **Date:** 2026-10-25
+- **Decision:** Dual JSON fixtures + SQLite vector fallback transitioning to Elasticsearch 8.x
+- **Rationale:** Seed fixtures in `backend/seed/` (`policies.json`, `carriers.json`, `customers.json`) provide immediate reproducibility without external dependencies.
+- **Impacted Modules:** `backend/seed/*`, `backend/app/engine/rag_store.py`
+
+---
+
+## DEC-013: Alembic Database Versioning & Migrations
+
+- **Status:** `ACTIVE`
+- **Date:** 2026-10-25
+- **Decision:** Async Alembic database versioning for SQLite and PostgreSQL schemas
+- **Rationale:** Enables non-destructive database evolution, repeatable environment teardown, and clean multi-developer migration parity.
+- **Impacted Modules:** `backend/alembic.ini`, `backend/alembic/*`, `backend/app/models/db_models.py`
+
+---
+
+## DEC-014: PayPal Sandbox Credential & Multi-Account Topology
+
+- **Status:** `ACTIVE`
+- **Date:** 2026-10-26
+- **Decision:** Establish a unified team PayPal Developer Sandbox App and explicit Account Topology.
+- **Account Topology:**
+  - **Merchant / Seller (Business)**: Configured in `backend/.env` via `PAYPAL_BUSINESS_ACCOUNT`
+    - Role: Primary commerce store protected by Sentin AI. Associated with the developer REST App credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).
+    - API actions: Receives customer dispute events, responds with Proof-of-Fulfillment (`/v1/customer/disputes/{id}/provide-evidence`), accepts claims (`/accept-claim`), or issues refunds (`/v2/payments/captures/{id}/refund`).
+  - **Buyer / Customer (Personal)**: Configured in `backend/.env` via `PAYPAL_BUYER_ACCOUNT`
+    - Role: Customer account for purchasing sandbox orders and filing INR (Item Not Received) or SNAD (Significantly Not As Described) claims via `sandbox.paypal.com` or the PayPal Webhook Simulator.
+- **Credential Distribution Strategy:**
+  - **Single Shared `.env`**: Shared privately among all 5 team members via secure internal chat (never committed to GitHub).
+  - **Rationale for Shared Credentials**:
+    1. **Dispute State Parity**: Disputes in PayPal Sandbox belong to the merchant receiving them. Sharing the merchant credentials guarantees every teammate sees the exact same disputes in their dashboard.
+    2. **Webhook Uniformity**: Webhooks are configured per App ID. A shared App ensures uniform webhook payloads for local and simulation testing.
+    3. **Zero Friction**: Teammates do not need to register separate developer accounts or generate disjoint credentials.
+- **Module Ownership & Team Role Division:**
+  - **Tech Lead (`feat/core-scaffold`)**: Owns `.env.example`, sandbox configuration schema (`backend/app/core/config.py`), local `.env` setup, and architecture contracts.
+  - **PayPal API Dev (`feat/paypal-integration`)**: Implements and validates active sandbox communication in `paypal_client.py`, webhook ingestion in `routes_webhooks.py`, and test scenarios in `routes_simulate.py`.
+- **Impacted Modules:** `backend/app/core/config.py`, `backend/app/core/paypal_client.py`, `backend/.env.example`, `DEVELOPMENT.md`, `.contracts/API_CONTRACT.md`
