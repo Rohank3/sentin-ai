@@ -301,7 +301,7 @@ Persisted shopper risk profile and historical dispute telemetry (`customers` tab
 
 | Field | Type | Nullable | Default | Description |
 |---|---|---|---|---|
-| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (UUID v4 or deterministic fixture slug, e.g. `cust_john_doe`) |
 | `paypal_payer_id` | `string(100)` | **Yes** | `null` | PayPal account Payer ID (indexed, unique if set) |
 | `email` | `string(255)` | No | N/A | Customer email address (unique) |
 | `full_name` | `string(255)` | No | `"Verified Buyer"` | Buyer full name |
@@ -316,7 +316,7 @@ Merchant account credentials and dispute configuration (`sellers` table).
 
 | Field | Type | Nullable | Default | Description |
 |---|---|---|---|---|
-| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (UUID v4 or deterministic fixture slug, e.g. `seller_acme`) |
 | `name` | `string(255)` | No | N/A | Merchant business name |
 | `email` | `string(255)` | No | N/A | Merchant notification email (unique) |
 | `paypal_client_id` | `string(255)` | **Yes** | `null` | Seller PayPal Sandbox OAuth2 Client ID |
@@ -328,7 +328,7 @@ PayPal dispute records and autonomous arbitration decisions (`disputes` table).
 
 | Field | Type | Nullable | Default | Description |
 |---|---|---|---|---|
-| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (UUID v4 or deterministic fixture slug, e.g. `disp-101`) |
 | `paypal_dispute_id` | `string(100)` | No | N/A | PayPal Dispute ID (e.g., `PP-D-849201`, unique index) |
 | `seller_id` | `string(36)` | No | N/A | Foreign key to `sellers.id` |
 | `customer_id` | `string(36)` | No | N/A | Foreign key to `customers.id` |
@@ -349,7 +349,7 @@ Immutable dispute action audit trail (`audit_logs` table).
 
 | Field | Type | Nullable | Default | Description |
 |---|---|---|---|---|
-| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (Standard UUID v4) |
 | `dispute_id` | `string(36)` | No | N/A | Foreign key to `disputes.id` (`ondelete="CASCADE"`) |
 | `action` | `string(100)` | No | N/A | Action identifier (e.g. `AI_EVALUATION_COMPLETED`) |
 | `details` | `text` | No | N/A | Detailed execution log or PayPal API response |
