@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     paypal_client_id: Optional[str] = Field(default=None)
     paypal_client_secret: Optional[str] = Field(default=None)
     paypal_base_url: str = Field(default="https://api-m.sandbox.paypal.com")
+    paypal_business_account: Optional[str] = Field(default=None)
+    paypal_buyer_account: Optional[str] = Field(default=None)
+    paypal_webhook_id: Optional[str] = Field(default=None)
 
     # Autonomy & Decision Thresholds
     auto_triage_enabled: bool = Field(default=True)
