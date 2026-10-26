@@ -294,6 +294,69 @@ API Welcome overview and documentation links.
 
 ---
 
+## Database Entity Schemas
+
+### `Customer`
+Persisted shopper risk profile and historical dispute telemetry (`customers` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `paypal_payer_id` | `string(100)` | **Yes** | `null` | PayPal account Payer ID (indexed, unique if set) |
+| `email` | `string(255)` | No | N/A | Customer email address (unique) |
+| `full_name` | `string(255)` | No | `"Verified Buyer"` | Buyer full name |
+| `total_spend` | `float` | No | `0.0` | Lifetime settled purchase volume in USD |
+| `total_orders` | `int` | No | `0` | Total completed order count |
+| `dispute_count` | `int` | No | `0` | Number of past dispute claims filed |
+| `risk_score` | `float` | No | `0.1` | Risk factor score (0.00 lowest risk to 1.00 high risk) |
+| `created_at` | `datetime` (UTC) | No | `utc_now()` | Record creation timestamp |
+
+### `Seller`
+Merchant account credentials and dispute configuration (`sellers` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `name` | `string(255)` | No | N/A | Merchant business name |
+| `email` | `string(255)` | No | N/A | Merchant notification email (unique) |
+| `paypal_client_id` | `string(255)` | **Yes** | `null` | Seller PayPal Sandbox OAuth2 Client ID |
+| `paypal_client_secret` | `string(255)` | **Yes** | `null` | Seller PayPal Sandbox OAuth2 Secret |
+| `created_at` | `datetime` (UTC) | No | `utc_now()` | Record creation timestamp |
+
+### `Dispute`
+PayPal dispute records and autonomous arbitration decisions (`disputes` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `paypal_dispute_id` | `string(100)` | No | N/A | PayPal Dispute ID (e.g., `PP-D-849201`, unique index) |
+| `seller_id` | `string(36)` | No | N/A | Foreign key to `sellers.id` |
+| `customer_id` | `string(36)` | No | N/A | Foreign key to `customers.id` |
+| `amount` | `float` | No | N/A | Dispute disputed value |
+| `currency` | `string(10)` | No | `"USD"` | ISO 4217 Currency code |
+| `reason` | `string(100)` | No | N/A | Dispute reason code (e.g., `ITEM_NOT_RECEIVED`) |
+| `status` | `string(50)` | No | `"OPEN"` | Status (`OPEN`, `UNDER_REVIEW`, `RESOLVED`, `CLOSED`) |
+| `ai_decision` | `json` | **Yes** | `null` | Serialized `AIDecision` from Gemini 2.0 Flash |
+| `ev_breakdown` | `json` | **Yes** | `null` | Serialized `EVResult` mathematical breakdown |
+| `evidence_snapshot` | `json` | **Yes** | `null` | Serialized `EvidenceSnapshot` (policies, PoD, buyer history) |
+| `auto_executed` | `boolean` | No | `false` | Whether action was autonomously dispatched |
+| `action_taken` | `string(50)` | **Yes** | `null` | Executed resolution action |
+| `created_at` | `datetime` (UTC) | No | `utc_now()` | Ingestion timestamp |
+| `updated_at` | `datetime` (UTC) | No | `utc_now()` | Last modification timestamp |
+
+### `AuditLog`
+Immutable dispute action audit trail (`audit_logs` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string` (UUID) | No | `uuid()` | Primary Key |
+| `dispute_id` | `string(36)` | No | N/A | Foreign key to `disputes.id` (`ondelete="CASCADE"`) |
+| `action` | `string(100)` | No | N/A | Action identifier (e.g. `AI_EVALUATION_COMPLETED`) |
+| `details` | `text` | No | N/A | Detailed execution log or PayPal API response |
+| `timestamp` | `datetime` (UTC) | No | `utc_now()` | Event occurrence timestamp |
+
+---
+
 ## Error Responses
 
 All errors follow this format:
