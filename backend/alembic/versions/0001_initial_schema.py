@@ -33,12 +33,13 @@ def upgrade() -> None:
     op.create_table(
         'customers',
         sa.Column('id', sa.String(length=36), nullable=False),
-        sa.Column('paypal_payer_id', sa.String(length=100), nullable=False),
+        sa.Column('paypal_payer_id', sa.String(length=100), nullable=True),
         sa.Column('email', sa.String(length=255), nullable=False),
-        sa.Column('name', sa.String(length=255), nullable=False),
-        sa.Column('dispute_count', sa.Integer(), nullable=False),
-        sa.Column('total_orders', sa.Integer(), nullable=False),
-        sa.Column('risk_score', sa.Float(), nullable=False),
+        sa.Column('full_name', sa.String(length=255), nullable=False, server_default='Verified Buyer'),
+        sa.Column('total_spend', sa.Float(), nullable=False, server_default='0.0'),
+        sa.Column('total_orders', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('dispute_count', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('risk_score', sa.Float(), nullable=False, server_default='0.1'),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('email')

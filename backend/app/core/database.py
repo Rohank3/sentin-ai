@@ -27,10 +27,18 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 async def init_db() -> None:
-    """Initialize database tables."""
+    """Initialize database tables and default fixtures."""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+        # Populate initial seed fixtures if database is unseeded
+        try:
+            from seed.seed_data import seed_database
+            async with async_session_maker() as session:
+                await seed_database(session)
+        except Exception as seed_err:
+            print(f"[Database] Notice: Seed auto-population skipped: {seed_err}")
     except Exception as e:
         # In testing or standalone development without Postgres running, log warning
         print(f"[Database] Warning: Could not auto-initialize tables: {e}")
