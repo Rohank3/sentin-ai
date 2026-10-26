@@ -2,6 +2,12 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-10-26] PayPal Sandbox Credential & Account Topology Specification
+- Logged DEC-014 in `DECISIONS.md`: Documented shared team Sandbox credential strategy and multi-account topology.
+- Added Sandbox Merchant Business account (`PAYPAL_BUSINESS_ACCOUNT`) and Buyer Personal account (`PAYPAL_BUYER_ACCOUNT`).
+- Updated `backend/.env.example` and `backend/app/core/config.py` with PayPal Sandbox account fields and reference IDs.
+- Documented PayPal Disputes v1 and Payments v2 Sandbox API endpoints in `API_CONTRACT.md`.
+
 ## [2026-10-26] Schema Harmonization & Docker Environment Hardening
 - Harmonized `Customer` SQLAlchemy model, Alembic initial migration (`0001_initial_schema`), and `customers.json` fixtures (`full_name`, `total_spend`, `total_orders`, nullable `paypal_payer_id`).
 - Documented persisted database entity schemas and field nullability in `API_CONTRACT.md` (`Customer`, `Seller`, `Dispute`, `AuditLog`).
