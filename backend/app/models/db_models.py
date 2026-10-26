@@ -34,11 +34,12 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    paypal_payer_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    paypal_payer_id: Mapped[Optional[str]] = mapped_column(String(100), unique=True, index=True, nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), default="Verified Buyer")
+    total_spend: Mapped[float] = mapped_column(Float, default=0.0)
+    total_orders: Mapped[int] = mapped_column(Integer, default=0)
     dispute_count: Mapped[int] = mapped_column(Integer, default=0)
-    total_orders: Mapped[int] = mapped_column(Integer, default=1)
     risk_score: Mapped[float] = mapped_column(Float, default=0.1)  # 0.0 to 1.0
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

@@ -1,7 +1,7 @@
 """Database & Local Fallback Seed Loader.
 
 Provides pre-validated seed fixtures for carrier tracking, merchant policies,
-and buyer profiles.
+buyer profiles, and marketplace sellers.
 """
 
 import json
@@ -40,8 +40,69 @@ def get_seed_customers() -> List[Dict[str, Any]]:
     """Retrieve buyer risk history and reputation profile fixtures."""
     return load_json_fixture("customers.json")
 
+def get_seed_sellers() -> List[Dict[str, Any]]:
+    """Retrieve merchant seller account fixtures."""
+    return load_json_fixture("sellers.json")
+
+async def seed_database(session: Any) -> Dict[str, int]:
+    """Populate database with default seed entities idempotently.
+
+    Checks seller and customer fixtures independently using stable primary keys,
+    inserting only records that are currently missing.
+
+    Args:
+        session: SQLAlchemy AsyncSession instance.
+
+    Returns:
+        Dictionary reporting count of newly seeded sellers and customers.
+    """
+    from app.models.db_models import Seller, Customer
+
+    stats = {"sellers": 0, "customers": 0}
+    try:
+        for s_data in get_seed_sellers():
+            existing_seller = await session.get(Seller, s_data["id"])
+            if not existing_seller:
+                seller = Seller(
+                    id=s_data["id"],
+                    name=s_data["name"],
+                    email=s_data["email"],
+                    paypal_client_id=s_data.get("paypal_client_id"),
+                    paypal_client_secret=s_data.get("paypal_client_secret"),
+                )
+                session.add(seller)
+                stats["sellers"] += 1
+
+        for c_data in get_seed_customers():
+            existing_customer = await session.get(Customer, c_data["id"])
+            if not existing_customer:
+                customer = Customer(
+                    id=c_data["id"],
+                    email=c_data["email"],
+                    full_name=c_data.get("full_name", "Verified Buyer"),
+                    paypal_payer_id=c_data.get("paypal_payer_id"),
+                    total_spend=c_data.get("total_spend", 0.0),
+                    total_orders=c_data.get("total_orders", 0),
+                    dispute_count=c_data.get("dispute_count", 0),
+                    risk_score=c_data.get("risk_score", 0.1),
+                )
+                session.add(customer)
+                stats["customers"] += 1
+
+        if stats["sellers"] > 0 or stats["customers"] > 0:
+            await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    return stats
+
 if __name__ == "__main__":
     policies = get_seed_policies()
     carriers = get_seed_carriers()
     customers = get_seed_customers()
-    print(f"[Seed] Successfully validated {len(policies)} policies, {len(carriers)} carrier records, {len(customers)} customer profiles.")
+    sellers = get_seed_sellers()
+    print(
+        f"[Seed] Successfully validated {len(policies)} policies, "
+        f"{len(carriers)} carrier records, {len(customers)} customer profiles, "
+        f"and {len(sellers)} seller accounts."
+    )
