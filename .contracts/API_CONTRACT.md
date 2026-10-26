@@ -377,3 +377,57 @@ All errors follow this format:
 | `500` | `PAYPAL_API_ERROR` | PayPal API call failed |
 | `500` | `AI_ENGINE_ERROR` | Gemini API call failed |
 | `500` | `ELASTIC_ERROR` | Elasticsearch query failed |
+
+
+---
+
+## PayPal Sandbox Integration Specification
+
+### 1. Environments & Base URLs
+- **Sandbox Base URL:** `https://api-m.sandbox.paypal.com`
+- **Merchant Sandbox Portal:** `https://sandbox.paypal.com` (Login using business test account)
+- **Buyer Sandbox Portal:** `https://sandbox.paypal.com` (Login using personal test account)
+
+### 2. Test Account Topology
+| Account Role | Type | Env Variable | Purpose |
+|---|---|---|---|
+| Merchant / Seller | Business | `PAYPAL_BUSINESS_ACCOUNT` | Store protected by Sentin AI. Associated with REST App credentials (`PAYPAL_CLIENT_ID`). |
+| Buyer / Shopper | Personal | `PAYPAL_BUYER_ACCOUNT` | Customer filing INR/SNAD dispute claims against the merchant. |
+
+### 3. Server-Side PayPal Endpoints Handled by `paypal_client.py`
+
+#### `POST /v1/oauth2/token`
+Retrieves an OAuth2 bearer token for sandbox API interactions.
+- **Headers:** `Authorization: Basic base64(PAYPAL_CLIENT_ID:PAYPAL_CLIENT_SECRET)`
+- **Body:** `grant_type=client_credentials`
+
+#### `GET /v1/customer/disputes/{dispute_id}`
+Retrieves dispute state, customer claim details, and evidence deadlines.
+
+#### `POST /v1/customer/disputes/{dispute_id}/provide-evidence`
+Submits carrier Proof-of-Delivery tracking and store policy documentation.
+- **Request Schema:**
+```json
+{
+  "evidences": [
+    {
+      "evidence_type": "PROOF_OF_FULFILLMENT",
+      "evidence_info": {
+        "tracking_info": [
+          {
+            "carrier_name": "FEDEX",
+            "tracking_number": "TRK-98234-FDX"
+          }
+        ]
+      },
+      "notes": "Delivered with signature confirmation under merchant return policy terms."
+    }
+  ]
+}
+```
+
+#### `POST /v1/customer/disputes/{dispute_id}/accept-claim`
+Accepts customer dispute claim when settling is mathematically optimal (`EV(Settle) > EV(Contest)`).
+
+#### `POST /v2/payments/captures/{capture_id}/refund`
+Executes an immediate payment refund to the customer.

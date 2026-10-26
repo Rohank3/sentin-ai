@@ -67,3 +67,24 @@ cd backend && python tests/test_contracts_and_schemas.py
 cd frontend && npm run build
 ```
 All commands must pass with exit code 0.
+
+
+---
+
+## 5. PayPal Sandbox Environment Setup
+
+To ensure consistent dispute state across the entire team, all team members share the **primary team sandbox environment**:
+
+1. **Configure Environment File**:
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
+2. **Obtain Team Sandbox Credentials**:
+   - Request the team `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and sandbox account emails privately from the Tech Lead.
+   - Never commit `.env` to Git (it is strictly ignored).
+3. **Sandbox Test Accounts Topology**:
+   - **Merchant Business Account (`PAYPAL_BUSINESS_ACCOUNT`)**: Store protected by Sentin AI.
+   - **Buyer Personal Account (`PAYPAL_BUYER_ACCOUNT`)**: Used to simulate purchases and dispute filings.
+4. **Mock Fallback**:
+   If credentials are left as placeholders, `paypal_client.py` gracefully returns synthetic mock responses so offline development and local UI demos continue without interruption.
