@@ -432,4 +432,4 @@ Submits carrier Proof-of-Delivery tracking and store policy documentation.
 Accepts customer dispute claim. Programmatically dispatched when settling is mathematically optimal (`EV(Settle) > EV(Contest)` within autonomy thresholds), or manually authorized as an advisory executive override by a human supervisor via the AG Studio command center.
 
 #### `POST /v2/payments/captures/{capture_id}/refund`
-Submits a payment refund request to PayPal. The response status may be `COMPLETED`, `PENDING`, or `FAILED`. Callers must confirm `status === "COMPLETED"` before treating the dispute as formally refunded and resolved.
+Submits a payment refund request to PayPal. The response status may be `COMPLETED`, `PENDING`, `FAILED`, or `CANCELLED`. Callers must confirm `status === "COMPLETED"` before treating the dispute as formally refunded and resolved.
