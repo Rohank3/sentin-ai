@@ -38,7 +38,11 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://dev:dev@db:5432/sentin_ai
+      - ELASTIC_URL=http://elasticsearch:9200
     depends_on:
       db:
         condition: service_healthy
