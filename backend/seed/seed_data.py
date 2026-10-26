@@ -45,22 +45,24 @@ def get_seed_sellers() -> List[Dict[str, Any]]:
     return load_json_fixture("sellers.json")
 
 async def seed_database(session: Any) -> Dict[str, int]:
-    """Populate database with default seed entities if empty.
+    """Populate database with default seed entities idempotently.
+
+    Checks seller and customer fixtures independently using stable primary keys,
+    inserting only records that are currently missing.
 
     Args:
         session: SQLAlchemy AsyncSession instance.
 
     Returns:
-        Dictionary reporting count of seeded sellers and customers.
+        Dictionary reporting count of newly seeded sellers and customers.
     """
-    from sqlalchemy import select, func
     from app.models.db_models import Seller, Customer
 
     stats = {"sellers": 0, "customers": 0}
     try:
-        seller_count = await session.scalar(select(func.count(Seller.id)))
-        if seller_count == 0:
-            for s_data in get_seed_sellers():
+        for s_data in get_seed_sellers():
+            existing_seller = await session.get(Seller, s_data["id"])
+            if not existing_seller:
                 seller = Seller(
                     id=s_data["id"],
                     name=s_data["name"],
@@ -71,7 +73,9 @@ async def seed_database(session: Any) -> Dict[str, int]:
                 session.add(seller)
                 stats["sellers"] += 1
 
-            for c_data in get_seed_customers():
+        for c_data in get_seed_customers():
+            existing_customer = await session.get(Customer, c_data["id"])
+            if not existing_customer:
                 customer = Customer(
                     id=c_data["id"],
                     email=c_data["email"],
@@ -85,6 +89,7 @@ async def seed_database(session: Any) -> Dict[str, int]:
                 session.add(customer)
                 stats["customers"] += 1
 
+        if stats["sellers"] > 0 or stats["customers"] > 0:
             await session.commit()
     except Exception:
         await session.rollback()
