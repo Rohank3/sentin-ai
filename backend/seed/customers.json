@@ -3,8 +3,9 @@
     "id": "cust_john_doe",
     "email": "johndoe.shopper@example.com",
     "full_name": "John Doe",
+    "paypal_payer_id": "PAYER_JD_01",
     "total_spend": 1240.00,
-    "order_count": 8,
+    "total_orders": 8,
     "dispute_count": 0,
     "risk_score": 0.05
   },
@@ -12,8 +13,9 @@
     "id": "cust_fraud_user",
     "email": "repeat.claimant@example.com",
     "full_name": "Alex Mercer",
+    "paypal_payer_id": "PAYER_AM_99",
     "total_spend": 450.00,
-    "order_count": 3,
+    "total_orders": 3,
     "dispute_count": 3,
     "risk_score": 0.88
   },
@@ -21,8 +23,9 @@
     "id": "cust_alice_smith",
     "email": "alice.shopper@example.com",
     "full_name": "Alice Smith",
+    "paypal_payer_id": "PAYER_AS_42",
     "total_spend": 680.00,
-    "order_count": 12,
+    "total_orders": 12,
     "dispute_count": 0,
     "risk_score": 0.02
   }
