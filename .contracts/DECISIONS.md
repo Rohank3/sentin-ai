@@ -181,7 +181,7 @@
 - **Decision:** Establish a unified team PayPal Developer Sandbox App and explicit Account Topology, harmonized with DEC-008.
 - **Credential Resolution Precedence (Harmonized with DEC-008)**:
   1. **Per-Seller Credentials (DEC-008)**: If a seller record in the database (`sellers` table) provides custom `paypal_client_id` and `paypal_client_secret`, `paypal_client.py` uses that seller's credentials for all dispute and payment actions.
-  2. **Platform Default Fallback**: If seller credentials are null or unspecified, the client automatically defaults to the platform-level credentials configured in `.env` (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_BUSINESS_ACCOUNT`).
+  2. **Platform Default Fallback**: If seller credentials are null or unspecified, the client automatically defaults to the platform-level OAuth credentials configured in `.env` (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`), with merchant-scoped operations identified by `PAYPAL_BUSINESS_ACCOUNT`.
 - **Account Topology:**
   - **Merchant / Seller (Business)**: Configured in `backend/.env` via `PAYPAL_BUSINESS_ACCOUNT`
     - Role: Primary commerce store protected by Sentin AI. Associated with the developer REST App credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).
