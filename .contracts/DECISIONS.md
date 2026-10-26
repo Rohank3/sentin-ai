@@ -48,64 +48,70 @@
 - **Decision:** Elasticsearch 8.x with hybrid search (keyword + vector)
 - **Rationale:** Hybrid search for policies + PoD records. Elastic sponsor prize eligible. Real product value for dispute context retrieval.
 - **Timeline:**
-  - Oct 25-27: Local SQLite + in-memory vector fallback (in `rag_store.py`)
-  - Oct 28-30: Docker Compose Elasticsearch container
-  - Nov 1-12: Full hybrid search integration
-- **Impacted Modules:** `rag_store.py`, `docker-compose.yml`
+  - Oct 25 – Nov 5: Docker locally (`docker.elastic.co/elasticsearch/elasticsearch:8.15.0`)
+  - Nov 5: Start Elastic Cloud 14-day free trial
+  - Nov 19: Request 30-day extension → expires Dec 19
+  - Dec 1–15: Judging period fully covered
+- **Fallback:** SQLite + NumPy cosine similarity (always present in `rag_store.py`)
+- **Impacted Modules:** `rag_store.py`, `config.py`
+- **Env Var:** `ELASTIC_URL` (default: `http://localhost:9200`)
 
 ---
 
-## DEC-004: Frontend Framework
+## DEC-004: Primary Database
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** Next.js 14 (App Router) + TypeScript + Tailwind CSS
-- **Rationale:** React ecosystem for AG Grid/AG Studio. TypeScript for contract safety with backend. Tailwind for rapid styling.
-- **Impacted Modules:** All frontend modules
-- **Alternatives Considered:** Vite + React (rejected: Next.js gives SSR, API routes for proxy, better deployment on Vercel/Render)
+- **Decision:** PostgreSQL 16 via Docker locally, Render free Postgres for production
+- **Rationale:** Same engine in dev and prod = zero compatibility bugs. Docker Compose provides identical environments.
+- **Impacted Modules:** `database.py`, `db_models.py`, `config.py`
+- **Env Var:** `DATABASE_URL` (default: `postgresql+asyncpg://dev:dev@localhost:5432/sentin_ai`)
 
 ---
 
-## DEC-005: Grid Component
+## DEC-005: ORM
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** AG Studio embedded inside Next.js dashboard
-- **Rationale:** $9K AG Grid sponsor prize track. Real-time dispute filtering, custom cell renderers (status badges, confidence bars), action buttons.
-- **Package:** `ag-grid-react` + `ag-grid-community`
-- **Impacted Modules:** `DisputeStudio.tsx`, `package.json`
+- **Decision:** SQLAlchemy 2.0 with async support via `asyncpg`
+- **Rationale:** Mature, well-documented, FastAPI-native async, excellent Postgres support.
+- **Impacted Modules:** `database.py`, `db_models.py`, all route files
+- **Packages:** `sqlalchemy[asyncio]`, `asyncpg`, `alembic`
 
 ---
 
-## DEC-006: Decision Formula
+## DEC-006: Frontend Grid
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** Mathematical Expected Value (EV) calculation with configurable risk tolerance
-- **Formula:**
-  $$\text{EV}(\text{Contest}) = P(\text{win}) \cdot (\text{Amount}) - (1 - P(\text{win})) \cdot (\text{Amount} + \text{DisputeFee}) - \text{LaborCost}$$
-  $$\text{EV}(\text{Settle/Refund}) = -\text{Amount}$$
-  $$\text{Optimal Action} = \arg\max(\text{EV}(\text{Contest}), \text{EV}(\text{Settle}))$$
-- **Rationale:** Gives judges concrete math rather than black-box AI decisions. Explainable, auditable, mathematically optimal.
-- **Impacted Modules:** `ev_calculator.py`, `agent.py`
+- **Decision:** AG Studio React (`ag-studio-react`) with Studio Agent Framework
+- **Rationale:** AG Grid sponsor prize ($9K) requires AG Studio. Studio Agent Framework lets merchants ask natural-language questions about disputes.
+- **Package:** `npm install ag-studio-react`
+- **Impacted Modules:** `DisputeStudio.tsx`
 
 ---
 
-## DEC-007: Human-in-the-Loop Thresholds
+## DEC-007: AI Autonomy Model
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
-- **Decision:** Automatic execution ONLY if:
-  - `amount <= MAX_AUTO_EXECUTE_AMOUNT` (default $100)
-  - `win_probability >= MIN_AUTO_EXECUTE_WIN_PROB` (default 0.70)
-  - `customer_risk_score <= MAX_CUSTOMER_RISK_SCORE` (default 0.50)
-  - All others route to `status = "UNDER_REVIEW"` for supervisor sign-off via AG Studio
-- **Rationale:** Risk mitigation. Prevents AI from auto-contesting high-value claims or auto-refunding fraud rings.
-- **Impacted Modules:** `agent.py`, `routes_disputes.py`, `DisputeStudio.tsx`
+- **Decision:** AI decides `auto_execute: boolean` based on full context
+- **Rationale:** More agentic approach. AI receives amount, win probability, customer history, dispute reason, and outputs whether to auto-execute or require human approval.
+- **Impacted Modules:** `agent.py`, `ev_calculator.py`, `routes_disputes.py`
+- **AI Output Schema:**
+  ```python
+  class AIDecision(BaseModel):
+      recommended_action: Literal["CONTEST", "SETTLE", "REFUND"]
+      win_probability: float  # 0.0 to 1.0
+      expected_value: float
+      reasoning: str
+      auto_execute: bool
+      confidence_factors: list[str]
+  ```
 
 ---
 
-## DEC-008: Multi-Seller Support
+## DEC-008: Multi-Seller Marketplace
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-25
@@ -172,7 +178,10 @@
 
 - **Status:** `ACTIVE`
 - **Date:** 2026-10-26
-- **Decision:** Establish a unified team PayPal Developer Sandbox App and explicit Account Topology.
+- **Decision:** Establish a unified team PayPal Developer Sandbox App and explicit Account Topology, harmonized with DEC-008.
+- **Credential Resolution Precedence (Harmonized with DEC-008)**:
+  1. **Per-Seller Credentials (DEC-008)**: If a seller record in the database (`sellers` table) provides custom `paypal_client_id` and `paypal_client_secret`, `paypal_client.py` uses that seller's credentials for all dispute and payment actions.
+  2. **Platform Default Fallback**: If seller credentials are null or unspecified, the client automatically defaults to the platform-level credentials configured in `.env` (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_BUSINESS_ACCOUNT`).
 - **Account Topology:**
   - **Merchant / Seller (Business)**: Configured in `backend/.env` via `PAYPAL_BUSINESS_ACCOUNT`
     - Role: Primary commerce store protected by Sentin AI. Associated with the developer REST App credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).

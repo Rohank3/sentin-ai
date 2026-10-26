@@ -403,9 +403,11 @@ Retrieves an OAuth2 bearer token for sandbox API interactions.
 
 #### `GET /v1/customer/disputes/{dispute_id}`
 Retrieves dispute state, customer claim details, and evidence deadlines.
+- **Note on Deadlines:** Evidence deadline fields (`response_due_date`) are conditional and present only when merchant action is actively required. In resolved disputes, closed states, or local mock fallback responses, deadline fields are optional or omitted.
 
 #### `POST /v1/customer/disputes/{dispute_id}/provide-evidence`
 Submits carrier Proof-of-Delivery tracking and store policy documentation.
+- **Defense Notes Content:** The `notes` field represents the synthesized merchant defense narrative incorporating cited store policy clauses alongside courier delivery verification.
 - **Request Schema:**
 ```json
 {
@@ -427,7 +429,7 @@ Submits carrier Proof-of-Delivery tracking and store policy documentation.
 ```
 
 #### `POST /v1/customer/disputes/{dispute_id}/accept-claim`
-Accepts customer dispute claim when settling is mathematically optimal (`EV(Settle) > EV(Contest)`).
+Accepts customer dispute claim. Programmatically dispatched when settling is mathematically optimal (`EV(Settle) > EV(Contest)` within autonomy thresholds), or manually authorized as an advisory executive override by a human supervisor via the AG Studio command center.
 
 #### `POST /v2/payments/captures/{capture_id}/refund`
 Executes an immediate payment refund to the customer.
