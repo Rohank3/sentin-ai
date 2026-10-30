@@ -2,6 +2,15 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-10-31] Refund retry review fix
+- Reject completed refunds before triage/capture lookup and reject concurrent
+  triage of the same process-local dispute record.
+- Track refund attempts before dispatch; add get_refund for read-only reconciliation.
+  Only verified FAILED/CANCELLED outcomes allow a new attempt; missing refund IDs,
+  pending/unknown outcomes and unavailable reconciliation block retries.
+- Update the shared triage route narrowly under the user's review-fix request;
+  no database schema changes. Persistence and cross-worker locking remain a handoff.
+
 ## [2026-10-30] Verified CodeRabbit findings
 - Restore DEC-014 credential precedence: named seller pair first, platform fallback
   only when both fields are absent; unknown sellers/incomplete pairs fail explicitly.

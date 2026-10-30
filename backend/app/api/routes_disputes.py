@@ -291,6 +291,41 @@ async def triage_dispute(dispute_id: str):
     if not dispute:
         raise HTTPException(status_code=404, detail="Dispute record not found.")
 
+    if dispute.get("_triage_in_progress"):
+        raise HTTPException(409, "Triage is already in progress for this dispute.")
+    if dispute["status"] == "RESOLVED" and dispute.get("action_taken") == "REFUNDED":
+        raise HTTPException(409, "This dispute has already been refunded.")
+    # No await between checking and setting: guards this single-process repository.
+    dispute["_triage_in_progress"] = True
+    try:
+        await _reconcile_refund(dispute)
+        return await _triage_dispute(dispute)
+    finally:
+        dispute.pop("_triage_in_progress", None)
+
+
+async def _reconcile_refund(dispute: Dict[str, Any]) -> None:
+    if "paypal_refund_state" not in dispute and not dispute.get("paypal_refund_request_id"):
+        return
+    if dispute.get("paypal_refund_state") == "COMPLETED":
+        raise HTTPException(409, "This dispute has already been refunded.")
+    refund_id = dispute.get("paypal_refund_id")
+    if not refund_id:
+        raise HTTPException(409, "Previous refund outcome is uncertain; manual PayPal reconciliation is required.")
+    result = await paypal_client.get_refund(refund_id, seller_id=dispute["seller_id"])
+    status = result.get("status") or "UNKNOWN"
+    dispute["paypal_refund_state"] = status
+    dispute["updated_at"] = utc_now()
+    dispute["audit_log"].append({"action": "REFUND_RECONCILED", "timestamp": utc_now(),
+                                "details": f"PayPal refund status: {status}."})
+    if status == "COMPLETED":
+        dispute.update(status="RESOLVED", action_taken="REFUNDED", auto_executed=True)
+        raise HTTPException(409, "PayPal confirms this dispute has already been refunded.")
+    if status not in {"FAILED", "CANCELLED"}:
+        raise HTTPException(409, "Previous refund is not confirmed failed or cancelled; retry blocked.")
+
+
+async def _triage_dispute(dispute: Dict[str, Any]):
     # 1. RAG context query
     policies = await rag_store.search_policies(dispute["reason"], seller_id=dispute["seller_id"])
     pod_records = await rag_store.get_pod_evidence()
@@ -344,13 +379,25 @@ async def triage_dispute(dispute_id: str):
             capture_id = await paypal_client.resolve_capture_id(
                 dispute["paypal_dispute_id"], seller_id=dispute["seller_id"]
             )
+            # Record uncertainty BEFORE dispatch, including cancellation/timeouts.
+            if dispute.get("paypal_refund_state") in {"FAILED", "CANCELLED"}:
+                request_id = str(uuid.uuid4())  # Reconciled terminal failure: new attempt.
+            else:
+                request_id = str(uuid.uuid5(
+                    uuid.NAMESPACE_URL, f"dispute-refund:{dispute['seller_id']}:{dispute['paypal_dispute_id']}"
+                ))
+            dispute.update(paypal_refund_state="UNKNOWN", paypal_refund_id=None,
+                           paypal_refund_request_id=request_id)
             paypal_res = await paypal_client.create_refund(
                 capture_id=capture_id,
                 amount=dispute["amount"],
                 currency=dispute["currency"],
                 note=decision.reasoning,
-                seller_id=dispute["seller_id"]
+                seller_id=dispute["seller_id"],
+                request_id=request_id
             )
+            dispute["paypal_refund_id"] = paypal_res.get("id")
+            dispute["paypal_refund_state"] = paypal_res.get("status") or "UNKNOWN"
             if paypal_res.get("status") == "COMPLETED":
                 dispute["auto_executed"] = True
                 dispute["action_taken"] = "REFUNDED"

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -226,6 +227,18 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 await self.client.get_dispute("PP-D-1")
             self.assertEqual(caught.exception.status_code, 502)
 
+    async def test_get_refund_requires_matching_real_response(self):
+        with self.transport(lambda r: httpx.Response(200, json={"id": "R-1", "status": "FAILED"})):
+            self.assertEqual((await self.client.get_refund("R-1"))["status"], "FAILED")
+            self.assertEqual(self.requests[-1].method, "GET")
+            self.assertEqual(self.requests[-1].url.path, "/v2/payments/refunds/R-1")
+        for payload in ({"id": "WRONG", "status": "FAILED"},
+                        {"id": "R-1", "status": "FAILED", "simulated": True}):
+            with self.transport(lambda r: httpx.Response(200, json=payload)):
+                with self.assertRaises(HTTPException) as caught:
+                    await self.client.get_refund("R-1")
+                self.assertEqual(caught.exception.status_code, 409)
+
 
 class RouteTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -357,6 +370,114 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             refund.assert_not_awaited()
             self.assertFalse(record["auto_executed"])
             self.assertIsNone(record["action_taken"])
+
+
+    async def _refund_case(self):
+        response = await self.http.post("/api/simulate", json={"scenario_type": "INR_NO_TRACKING", "auto_triage": False})
+        record = webhooks.SEED_DISPUTES[response.json()["dispute_id"]]
+        record["paypal_dispute_id"] = "PP-D-1"
+        return record
+
+    def _refund_dependencies(self, stack, outcome=None):
+        from app.models.schemas import AIDecision
+        decision = AIDecision(recommended_action="REFUND", win_probability=0.1,
+                              expected_value=-10, reasoning="Refund justified", auto_execute=True)
+        stack.enter_context(patch.object(disputes.claims_agent, "evaluate_dispute", AsyncMock(return_value=decision)))
+        stack.enter_context(patch.object(disputes.rag_store, "elastic_client", None))
+        resolve = stack.enter_context(patch.object(disputes.paypal_client, "resolve_capture_id", AsyncMock(return_value="CAPTURE123")))
+        refund = stack.enter_context(patch.object(disputes.paypal_client, "create_refund", AsyncMock(return_value=outcome or {"id": "R-2", "status": "COMPLETED"})))
+        return resolve, refund
+
+    async def test_completed_refund_rejected_before_capture_lookup(self):
+        record = await self._refund_case()
+        record.update(status="RESOLVED", action_taken="REFUNDED", auto_executed=True)
+        with ExitStack() as stack:
+            resolve, refund = self._refund_dependencies(stack)
+            result = await self.http.post(f"/api/disputes/{record['id']}/triage")
+            self.assertEqual(result.status_code, 409)
+            resolve.assert_not_awaited()
+            refund.assert_not_awaited()
+            self.assertTrue(record["auto_executed"])
+
+    async def test_uncertain_refund_reconciles_before_any_retry(self):
+        for status in ("COMPLETED", "PENDING", "UNKNOWN", None):
+            record = await self._refund_case()
+            record.update(paypal_refund_state="UNKNOWN", paypal_refund_id="R-1")
+            with ExitStack() as stack:
+                resolve, refund = self._refund_dependencies(stack)
+                lookup = stack.enter_context(patch.object(disputes.paypal_client, "get_refund", AsyncMock(return_value={"id": "R-1", "status": status})))
+                result = await self.http.post(f"/api/disputes/{record['id']}/triage")
+                self.assertEqual(result.status_code, 409)
+                lookup.assert_awaited_once_with("R-1", seller_id=record["seller_id"])
+                resolve.assert_not_awaited()
+                refund.assert_not_awaited()
+                self.assertEqual(record["status"], "RESOLVED" if status == "COMPLETED" else "OPEN")
+                self.assertNotIn("_triage_in_progress", record)
+
+    async def test_retry_requires_confirmed_failed_or_cancelled(self):
+        for status in ("FAILED", "CANCELLED"):
+            record = await self._refund_case()
+            record.update(paypal_refund_state="PENDING", paypal_refund_id="R-1", paypal_refund_request_id="old-request")
+            with ExitStack() as stack:
+                resolve, refund = self._refund_dependencies(stack)
+                async def reconcile(*args, **kwargs):
+                    resolve.assert_not_awaited()
+                    refund.assert_not_awaited()
+                    return {"id": "R-1", "status": status}
+                stack.enter_context(patch.object(disputes.paypal_client, "get_refund", AsyncMock(side_effect=reconcile)))
+                result = await self.http.post(f"/api/disputes/{record['id']}/triage")
+                self.assertEqual(result.status_code, 200, result.text)
+                refund.assert_awaited_once()
+                self.assertNotEqual(refund.await_args.kwargs["request_id"], "old-request")
+                self.assertEqual(record["paypal_refund_id"], "R-2")
+                self.assertEqual(record["status"], "RESOLVED")
+
+    async def test_refund_timeout_without_id_blocks_repeat_dispatch(self):
+        record = await self._refund_case()
+        with ExitStack() as stack:
+            resolve, refund = self._refund_dependencies(stack)
+            refund.side_effect = HTTPException(503, "uncertain timeout")
+            first = await self.http.post(f"/api/disputes/{record['id']}/triage")
+            self.assertEqual(first.status_code, 503)
+            self.assertEqual(record["paypal_refund_state"], "UNKNOWN")
+            second = await self.http.post(f"/api/disputes/{record['id']}/triage")
+            self.assertEqual(second.status_code, 409)
+            refund.assert_awaited_once()
+            resolve.assert_awaited_once()
+
+    async def test_reconciliation_outage_blocks_refund(self):
+        record = await self._refund_case()
+        record.update(paypal_refund_state="PENDING", paypal_refund_id="R-1")
+        with ExitStack() as stack:
+            resolve, refund = self._refund_dependencies(stack)
+            stack.enter_context(patch.object(disputes.paypal_client, "get_refund", AsyncMock(side_effect=HTTPException(503, "offline"))))
+            result = await self.http.post(f"/api/disputes/{record['id']}/triage")
+            self.assertEqual(result.status_code, 503)
+            refund.assert_not_awaited()
+            resolve.assert_not_awaited()
+            self.assertEqual(record["paypal_refund_state"], "PENDING")
+
+    async def test_concurrent_triage_dispatches_only_one_refund(self):
+        record = await self._refund_case()
+        entered, release = asyncio.Event(), asyncio.Event()
+        with ExitStack() as stack:
+            _, refund = self._refund_dependencies(stack)
+            async def hold_refund(**kwargs):
+                entered.set()
+                await release.wait()
+                return {"id": "R-1", "status": "COMPLETED"}
+            refund.side_effect = hold_refund
+            first = asyncio.create_task(self.http.post(f"/api/disputes/{record['id']}/triage"))
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=5)
+                second = await self.http.post(f"/api/disputes/{record['id']}/triage")
+                self.assertEqual(second.status_code, 409)
+            finally:
+                release.set()
+                result = await first
+            self.assertEqual(result.status_code, 200)
+            refund.assert_awaited_once()
+            self.assertNotIn("_triage_in_progress", record)
 
 
 if __name__ == "__main__":

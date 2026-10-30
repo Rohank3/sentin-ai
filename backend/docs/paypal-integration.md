@@ -82,6 +82,14 @@ separate intentional partial refund of the same amount. PayPal controls the
 idempotency retention window. After a timeout, reconcile against PayPal before
 retrying. Configured API errors never become mock success responses.
 
+Refund triage rejects already completed refunds and concurrent triage of the same
+record. It records UNKNOWN before dispatch and saves the refund ID when returned.
+A subsequent triage reads that refund from PayPal; only confirmed FAILED/CANCELLED
+permits a new attempt. COMPLETED updates the local record and rejects repeat
+execution; pending/unknown status and lookup failures block retry. A timeout with
+no refund ID requires manual reconciliation, not a blind resubmission. These
+guards are in memory; they do not survive restart or coordinate multiple workers.
+
 Per DEC-014, `default` uses platform credentials directly. Named sellers first use
 their own `Seller.paypal_client_id` / `paypal_client_secret` pair; if both are
 absent, they fall back to the platform pair. Unknown sellers, incomplete pairs,

@@ -1,6 +1,6 @@
 # Module Registry
 
-> **Last Updated:** 2026-10-30 (PayPal scope)
+> **Last Updated:** 2026-10-31 (PayPal scope)
 >
 > Check this file BEFORE modifying any module. Respect the `Status` column.
 > - **STUB**: Returns placeholder/hardcoded data. Do NOT replace with real logic unless you are the Owner.
@@ -38,7 +38,7 @@ The simulator's STABLE status applies to local scenario injection only.
 |---|---|
 | OAuth authentication | Real Sandbox access token obtained; credentials/token not logged or committed |
 | Sandbox API access | Read-only webhook-list and dispute-list calls returned HTTP 200; both returned zero records at the check |
-| Client requests and failures | 25 automated tests passed using httpx MockTransport and ASGI; includes DEC-014 credential precedence, verified capture resolution and triage outcomes, token cache/refresh, evidence encoding, refund validation/retry keys, signatures, deduplication, and offline scenarios |
+| Client requests and failures | 32 automated tests passed using httpx MockTransport and ASGI; includes completed/concurrent refund rejection, PayPal reconciliation before retry, timeout/outage handling, DEC-014 credential precedence, capture resolution, token cache/refresh, evidence encoding, signatures, deduplication, and offline scenarios |
 | Existing baseline checks | 5 contract tests, backend compilation, and frontend production build passed on this branch |
 | Local execution | Dashboard and API/docs responded HTTP 200; local simulation returned HTTP 201 with a SIM- ID |
 | Signed webhook delivery | Not tested against a real PayPal case; no registration or webhook ID configured at the check |
@@ -56,6 +56,8 @@ The simulator's STABLE status applies to local scenario injection only.
    need execution-state review. Then enable real webhook triage.
 3. **Tech Lead:** replace process-local dispute/event storage with durable
    persistence before claiming restart-safe or multi-worker webhook ingestion.
+   Refund attempt metadata and triage guards are also process-local and require
+   durable storage/cross-worker locking before production use.
 4. **Deployment owner + PayPal Dev:** after team deployment, register the HTTPS
    `/api/webhooks/paypal` URL on the shared Sandbox app for CREATED, UPDATED, and
    RESOLVED dispute events; set `PAYPAL_WEBHOOK_ID` in the private environment.

@@ -348,6 +348,7 @@ ID resolution (`str`), and signature verification (`bool`).
 | `provide_evidence(dispute_id, carrier, tracking_number, notes, evidence_type="PROOF_OF_FULFILLMENT", seller_id="default")` | `POST /v1/customer/disputes/{id}/provide-evidence`; multipart `input` containing JSON fulfillment tracking evidence; other evidence types are not implemented |
 | `accept_claim(dispute_id, notes, seller_id="default")` | `POST /v1/customer/disputes/{id}/accept-claim`; JSON `note` |
 | `create_refund(capture_id, amount, currency="USD", note="Resolved via AI Dispute Management", seller_id="default", request_id=None)` | `POST /v2/payments/captures/{id}/refund`; JSON amount and payer note; `PayPal-Request-Id` header |
+| `get_refund(refund_id, seller_id="default")` | `GET /v2/payments/refunds/{id}`; requires a matching real refund ID in the response; mock responses cannot authorize retries |
 | `verify_webhook_signature(headers, event)` | `POST /v1/notifications/verify-webhook-signature`; five transmission headers, webhook registration ID, and original parsed event |
 
 Successful nonempty upstream object responses are returned unchanged. An empty
@@ -398,6 +399,22 @@ upstream data for a real dispute, or a mismatched capture response return 409
 without issuing a refund. Non-capture seller transactions are not converted by
 guessing: failed Payments lookup returns the existing upstream error.
 
+Triage rejects already RESOLVED/REFUNDED records with 409 before capture lookup.
+It records refund request ID, refund ID (when returned), and outcome in the
+process-local dispute record. Before issuing a refund it records UNKNOWN; a
+timeout or missing response therefore cannot silently permit a second attempt.
+The initial request ID is deterministic per seller/dispute; a new key is allocated
+only after a reconciled terminal failure. This supplements, but does not replace,
+durable attempt storage or extend PayPal's idempotency retention window.
+On subsequent triage, any recorded refund attempt is reconciled via `get_refund`:
+COMPLETED marks the dispute refunded and rejects repeat execution; only confirmed
+FAILED/CANCELLED permits a new attempt with a new request ID. PENDING, unknown
+status, missing refund ID, mismatched/mock data, and lookup errors block retry.
+Missing refund IDs require manual reconciliation; there is no automatic guessing
+from capture totals. Concurrent triage of one record is rejected with 409.
+These guards share the existing single-process storage limitation; durable refund
+attempt records and cross-worker locking remain required before production use.
+
 Credential precedence now follows upstream DEC-014; no decision is superseded.
 Shared configuration merge conflicts remain a Tech Lead handoff. See
 [handoff status](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
@@ -414,7 +431,7 @@ Request-model validation errors use FastAPI's normal 422 `detail` array.
 | 400 | Invalid identifiers, refund/evidence inputs, webhook body/resource, or non-finite simulation amount |
 | 401 | Missing or invalid webhook signature when verification is configured |
 | 404 | Requested non-default seller not found |
-| 409 | Webhook seller mismatch or missing/ambiguous/unverified refund capture mapping |
+| 409 | Webhook seller mismatch; missing/ambiguous/unverified capture mapping; completed refund, concurrent triage, or refund outcome not safe to retry |
 | 422 | Simulation request fails Pydantic validation |
 | 502 | PayPal authentication failure, rejected API operation, or malformed upstream response |
 | 503 | Missing/incomplete required credentials or webhook ID, unavailable seller store, or PayPal request transport failure |

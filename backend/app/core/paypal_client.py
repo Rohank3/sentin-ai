@@ -214,6 +214,14 @@ class PayPalClient:
             result.update(id=f"REFUND-{capture_id}", status="COMPLETED", amount=payload["amount"])
         return result
 
+    async def get_refund(self, refund_id: str, seller_id: str = "default") -> Dict[str, Any]:
+        """Read a real refund outcome; synthetic acknowledgements cannot permit retry."""
+        _identifier(refund_id)
+        result = await self._request("GET", f"/v2/payments/refunds/{refund_id}", seller_id)
+        if result.get("simulated") or result.get("id") != refund_id:
+            raise HTTPException(409, "Refund status could not be verified with PayPal.")
+        return result
+
     async def verify_webhook_signature(self, headers: Mapping[str, str], event: dict) -> bool:
         if not _configured(settings.paypal_webhook_id) or not all(self._get_credentials()):
             raise HTTPException(503, "Configure PayPal credentials and PAYPAL_WEBHOOK_ID; use /api/simulate for offline demos.")
