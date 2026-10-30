@@ -399,11 +399,12 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             refund.assert_not_awaited()
             self.assertTrue(record["auto_executed"])
 
-    async def test_refund_note_is_bounded_before_real_client_validation(self):
-        for length in (254, 255, 256, 2000):
-            with self.subTest(length=length):
+    async def test_refund_note_excludes_internal_reasoning(self):
+        reasons = ["R" * length for length in (254, 255, 256, 2000)]
+        reasons.append('Internal risk score: 0.95; buyer@example.com\n<script>alert("fraud")</script>')
+        for reasoning in reasons:
+            with self.subTest(reasoning_length=len(reasoning)):
                 record = await self._refund_case()
-                reasoning = "R" * length
                 with ExitStack() as stack:
                     _, refund = self._refund_dependencies(stack)
                     disputes.claims_agent.evaluate_dispute.return_value.reasoning = reasoning
@@ -412,7 +413,10 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
                     refund.side_effect = real_refund
                     async def upstream(method, path, seller_id, **kwargs):
                         self.assertEqual(record["paypal_refund_state"], "UNKNOWN")
-                        self.assertEqual(kwargs["payload"]["note_to_payer"], reasoning[:255])
+                        note = kwargs["payload"]["note_to_payer"]
+                        self.assertEqual(note, "A refund has been requested for your purchase.")
+                        self.assertLessEqual(len(note), 255)
+                        self.assertNotIn(reasoning, json.dumps(kwargs["payload"]))
                         return {"id": "R-1", "status": "COMPLETED"}
                     request = stack.enter_context(patch.object(disputes.paypal_client, "_request", AsyncMock(side_effect=upstream)))
                     result = await self.http.post(f"/api/disputes/{record['id']}/triage")

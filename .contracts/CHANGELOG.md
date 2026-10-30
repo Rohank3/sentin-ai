@@ -2,6 +2,14 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-10-31] Separate payer messaging from internal refund reasoning
+- Replace the truncated AI reasoning in the triage refund note with a fixed,
+  neutral payer message containing no dynamic input or risk analysis.
+- Retain full reasoning in existing decision/audit records; document that the
+  demo API/storage lacks access control and needs deployment protection.
+- Regression coverage checks the actual refund payload with long and sensitive
+  reasoning. Narrow shared-route change is recorded for Tech Lead review in PR #5.
+
 ## [2026-10-31] Refund note length review fix
 - Bound the triage refund note to 255 characters before recording an UNKNOWN
   attempt. Preserve full reasoning in the AI decision and audit details.
