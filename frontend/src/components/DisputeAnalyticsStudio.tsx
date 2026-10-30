@@ -212,9 +212,19 @@ export const DisputeAnalyticsStudio: React.FC<DisputeAnalyticsStudioProps> = ({
               dashboard to generate live PayPal dispute claims to populate AG Studio analytics.
             </p>
           </div>
-        ) : !isMounted ? (
-          <div className="h-full flex items-center justify-center text-xs text-slate-400">
-            Initializing AG Studio Analytics Engine...
+        ) : !isMounted || loading ? (
+          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3">
+            <div className="p-3 rounded-full bg-slate-900 border border-slate-800 text-blue-400 animate-spin">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-white">
+                {loading ? "Refreshing Dispute Records..." : "Initializing AG Studio Engine..."}
+              </h4>
+              <p className="text-xs text-slate-400 max-w-sm">
+                Preparing multi-dimensional data sources and relational schema for analytics.
+              </p>
+            </div>
           </div>
         ) : (
           <AgStudio

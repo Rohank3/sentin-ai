@@ -517,10 +517,16 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
 
         {/* View Switcher Tabs */}
         <div className="flex items-center gap-3">
-          <div className="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs shadow-inner">
+          <div
+            role="tablist"
+            aria-label="Dispute Studio views"
+            className="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs shadow-inner"
+          >
             <button
+              role="tab"
+              aria-selected={activeTab === "operations"}
               onClick={() => setActiveTab("operations")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                 activeTab === "operations"
                   ? "bg-blue-600 text-white shadow"
                   : "text-slate-400 hover:text-slate-200"
@@ -531,8 +537,10 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
               <span>Operations (AG Grid)</span>
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === "analytics"}
               onClick={() => setActiveTab("analytics")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                 activeTab === "analytics"
                   ? "bg-purple-600 text-white shadow"
                   : "text-slate-400 hover:text-slate-200"
@@ -561,12 +569,17 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
           {/* Operations Toolbar with Quick Search */}
           <div className="p-3 sm:px-5 bg-slate-950/40 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             {/* Status Filter Tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto">
+            <div
+              role="group"
+              aria-label="Filter claims by status"
+              className="flex items-center gap-2 overflow-x-auto"
+            >
               <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               {statusOptions.map((opt) => (
                 <button
                   key={opt.id}
                   onClick={() => setStatusFilter(opt.id)}
+                  aria-pressed={statusFilter === opt.id}
                   className={`text-xs font-semibold px-3 py-1 rounded-md transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                     statusFilter === opt.id
                       ? "bg-blue-600 text-white shadow-sm"
@@ -586,6 +599,7 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search claims, merchants, buyers..."
+                aria-label="Search claims, merchants, buyers"
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-950 border border-slate-700/80 rounded-lg text-white placeholder-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               />
             </div>
