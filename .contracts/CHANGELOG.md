@@ -2,6 +2,17 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-10-30] Verified CodeRabbit findings
+- Restore DEC-014 credential precedence: named seller pair first, platform fallback
+  only when both fields are absent; unknown sellers/incomplete pairs fail explicitly.
+- Add resolve_capture_id and use it in the triage REFUND branch; verify a single
+  seller transaction using Payments v2 before refunding. Keep the PP- guard unchanged.
+- Refund triage leaves auto_executed false on resolution/request failure or a
+  non-COMPLETED response; audit details report the returned status.
+- User-authorized narrow shared-module fix in routes_disputes.py; record the
+  handoff in PR #5. No AI behavior or database schemas changed.
+- Isolate the offline scenario test from configured Gemini and Elasticsearch clients.
+
 ## [2026-10-30] PayPal implementation and acceptance contract update
 - User explicitly requested contract updates to match delivered PayPal work.
 - Corrected the simulator response example to use SIM- IDs and documented explicit

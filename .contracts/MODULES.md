@@ -29,7 +29,7 @@
 
 ## PayPal Delivery and Acceptance Status (2026-10-30)
 
-Implementation is available on `feat/paypal-integration` in [draft PR #5](https://github.com/Rohank3/sentin-ai/pull/5)
+Implementation is available on `feat/paypal-integration` in [PR #5](https://github.com/Rohank3/sentin-ai/pull/5)
 targeting `dev`. WIP for the client and webhook modules means implementation is
 present but real end-to-end acceptance and shared integration are incomplete.
 The simulator's STABLE status applies to local scenario injection only.
@@ -38,21 +38,22 @@ The simulator's STABLE status applies to local scenario injection only.
 |---|---|
 | OAuth authentication | Real Sandbox access token obtained; credentials/token not logged or committed |
 | Sandbox API access | Read-only webhook-list and dispute-list calls returned HTTP 200; both returned zero records at the check |
-| Client requests and failures | 18 automated tests passed using httpx MockTransport and ASGI; includes token cache/refresh, seller isolation, evidence encoding, refund validation/retry keys, signatures, deduplication, and offline scenarios |
+| Client requests and failures | 25 automated tests passed using httpx MockTransport and ASGI; includes DEC-014 credential precedence, verified capture resolution and triage outcomes, token cache/refresh, evidence encoding, refund validation/retry keys, signatures, deduplication, and offline scenarios |
 | Existing baseline checks | 5 contract tests, backend compilation, and frontend production build passed on this branch |
 | Local execution | Dashboard and API/docs responded HTTP 200; local simulation returned HTTP 201 with a SIM- ID |
 | Signed webhook delivery | Not tested against a real PayPal case; no registration or webhook ID configured at the check |
 | Evidence, claim acceptance, capture refunds | Implemented and mock-tested; actual Sandbox mutations not yet verified |
-| Real automatic dispute processing | Pending actual evidence/capture mapping and successful execution-state handling in the shared dispute routes |
+| Real automatic dispute processing | Refund triage resolves and verifies capture IDs; transaction-specific evidence and remaining shared execution-state handling are still pending |
 
 ### Remaining ownership and acceptance gates
 
 1. **Tech Lead:** resolve shared configuration and contract conflicts against
-   `dev` (`.contracts/CHANGELOG.md`, `backend/.env.example`, `backend/app/core/config.py`),
-   and reconcile the credential policy difference with upstream DEC-014.
-2. **Tech Lead with AI owner:** connect transaction-specific evidence and original
-   capture IDs; handle SETTLE, pending/failed refunds, simulated outcomes, and mark
-   execution successful only after acknowledgement. Then enable real webhook triage.
+   `dev` (`.contracts/CHANGELOG.md`, `backend/.env.example`, `backend/app/core/config.py`).
+   Credential precedence now conforms to DEC-014; no supersession is needed.
+2. **Tech Lead with AI owner:** connect transaction-specific evidence; handle
+   SETTLE and simulated outcomes throughout the dashboard. Refund triage now verifies
+   capture IDs and marks REFUNDED only on COMPLETED; other action branches still
+   need execution-state review. Then enable real webhook triage.
 3. **Tech Lead:** replace process-local dispute/event storage with durable
    persistence before claiming restart-safe or multi-worker webhook ingestion.
 4. **Deployment owner + PayPal Dev:** after team deployment, register the HTTPS

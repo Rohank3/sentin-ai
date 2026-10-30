@@ -339,20 +339,27 @@ async def triage_dispute(dispute_id: str):
             dispute["status"] = "UNDER_REVIEW"
             action_result = paypal_res
         elif decision.recommended_action == "REFUND":
+            # Resolve the payment resource; a dispute ID is never a capture ID.
+            dispute["auto_executed"] = False
+            capture_id = await paypal_client.resolve_capture_id(
+                dispute["paypal_dispute_id"], seller_id=dispute["seller_id"]
+            )
             paypal_res = await paypal_client.create_refund(
-                capture_id=dispute["paypal_dispute_id"],
+                capture_id=capture_id,
                 amount=dispute["amount"],
                 currency=dispute["currency"],
                 note=decision.reasoning,
                 seller_id=dispute["seller_id"]
             )
-            dispute["action_taken"] = "REFUNDED"
-            dispute["status"] = "RESOLVED"
+            if paypal_res.get("status") == "COMPLETED":
+                dispute["auto_executed"] = True
+                dispute["action_taken"] = "REFUNDED"
+                dispute["status"] = "RESOLVED"
             action_result = paypal_res
 
         dispute["audit_log"].append({
             "action": f"AUTONOMOUS_{decision.recommended_action}",
-            "details": f"Autonomous execution completed via PayPal API: {decision.reasoning}",
+            "details": f"PayPal action result: {(action_result or {}).get('status', 'UNKNOWN')}. {decision.reasoning}",
             "timestamp": utc_now()
         })
     else:

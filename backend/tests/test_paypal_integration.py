@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from app.core.config import settings
 from app.core.paypal_client import PayPalClient, MOCK_TOKEN
 from app.api import routes_webhooks as webhooks, routes_simulate as simulator
+from app.api import routes_disputes as disputes
 
 RealAsyncClient = httpx.AsyncClient
 
@@ -128,7 +129,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((await self.client.create_refund("SIM-123", 10, seller_id="another"))["simulated"])
             self.assertEqual(self.requests, [])
 
-    async def test_seller_credentials_do_not_fall_back(self):
+    async def test_unknown_seller_fails_and_own_credentials_take_precedence(self):
         with patch("app.core.database.async_session_maker") as factory:
             session = factory.return_value.__aenter__.return_value
             session.get = AsyncMock(return_value=None)
@@ -142,6 +143,59 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             import base64
             credentials = base64.b64decode(self.requests[0].headers["authorization"].split()[1]).decode()
             self.assertEqual(credentials, "other-client:other-secret")
+
+    async def test_named_seller_falls_back_only_for_absent_pair(self):
+        with patch("app.core.database.async_session_maker") as factory:
+            session = factory.return_value.__aenter__.return_value
+            seller = type("Seller", (), {"paypal_client_id": None, "paypal_client_secret": None})()
+            session.get = AsyncMock(return_value=seller)
+            self.assertEqual(await self.client._seller_credentials("other"), ("client", "secret"))
+            seller.paypal_client_id, seller.paypal_client_secret = "own-client", "own-secret"
+            self.assertEqual(await self.client._seller_credentials(settings.paypal_seller_id), ("own-client", "own-secret"))
+            for pair in (("own-client", None), (None, "own-secret")):
+                seller.paypal_client_id, seller.paypal_client_secret = pair
+                with self.assertRaises(HTTPException) as caught:
+                    await self.client._seller_credentials("other")
+                self.assertEqual(caught.exception.status_code, 503)
+            session.get.side_effect = RuntimeError("database unavailable")
+            with self.assertRaises(HTTPException) as caught:
+                await self.client._seller_credentials("other")
+            self.assertEqual(caught.exception.status_code, 503)
+
+    async def test_resolve_capture_verifies_payments_resource(self):
+        def handler(request):
+            if request.url.path == "/v1/customer/disputes/PP-D-1":
+                return httpx.Response(200, json={"disputed_transactions": [{"seller_transaction_id": "CAPTURE123"}]})
+            self.assertEqual(request.url.path, "/v2/payments/captures/CAPTURE123")
+            return httpx.Response(200, json={"id": "CAPTURE123", "status": "COMPLETED"})
+        with self.transport(handler):
+            self.assertEqual(await self.client.resolve_capture_id("PP-D-1"), "CAPTURE123")
+        self.assertTrue(all(r.method == "GET" for r in self.requests[1:]))
+
+    async def test_resolve_capture_rejects_missing_ambiguous_and_dispute_ids(self):
+        for rows in (None, [], [{}, {}], [{}], [{"seller_transaction_id": "PP-D-1"}],
+                     [{"seller_transaction_id": "SIM-1"}]):
+            with patch.object(self.client, "get_dispute", AsyncMock(return_value={"disputed_transactions": rows})):
+                with patch.object(self.client, "_request", AsyncMock()) as request:
+                    with self.assertRaises(HTTPException) as caught:
+                        await self.client.resolve_capture_id("PP-D-1")
+                    self.assertEqual(caught.exception.status_code, 409)
+                    request.assert_not_awaited()
+
+    async def test_resolve_capture_rejects_wrong_or_unavailable_resource(self):
+        with patch.object(self.client, "get_dispute", AsyncMock(return_value={"disputed_transactions": [{"seller_transaction_id": "CAPTURE123"}]})):
+            for result in ({"id": "WRONG"}, {"id": "CAPTURE123", "simulated": True}):
+                with patch.object(self.client, "_request", AsyncMock(return_value=result)):
+                    with self.assertRaises(HTTPException):
+                        await self.client.resolve_capture_id("PP-D-1")
+            with patch.object(self.client, "_request", AsyncMock(side_effect=HTTPException(502, "not a capture"))):
+                with self.assertRaises(HTTPException):
+                    await self.client.resolve_capture_id("PP-D-1")
+
+    async def test_simulated_capture_resolution_never_calls_paypal(self):
+        with self.transport(lambda r: self.fail("Unexpected network call")):
+            self.assertEqual(await self.client.resolve_capture_id("SIM-123", "other"), "SIM-CAPTURE-123")
+        self.assertEqual(self.requests, [])
 
     async def test_signature_verification_payload(self):
         headers = {"PayPal-Auth-Algo": "SHA256withRSA", "PayPal-Cert-Url": "https://api.paypal.com/cert",
@@ -181,6 +235,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         app = FastAPI()
         app.include_router(webhooks.router)
         app.include_router(simulator.router)
+        app.include_router(disputes.router)
         self.http = RealAsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
         self.event = {"id": "EV-1", "event_type": "CUSTOMER.DISPUTE.CREATED", "create_time": "2026-10-26T10:00:00Z",
                       "resource": {"dispute_id": "PP-D-1", "status": "OPEN",
@@ -243,7 +298,9 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(webhooks.SEED_DISPUTES), 1)
 
     async def test_all_scenarios_remain_offline_with_credentials(self):
-        with patch.multiple(settings, paypal_client_id="client", paypal_client_secret="secret"):
+        with (patch.multiple(settings, paypal_client_id="client", paypal_client_secret="secret", gemini_api_key="configured-test-key"),
+              patch.object(disputes.claims_agent, "client", None),
+              patch.object(disputes.rag_store, "elastic_client", None)):
             with patch("app.core.paypal_client.httpx.AsyncClient", side_effect=AssertionError("PayPal network call in simulation")):
                 for scenario in simulator.SCENARIO_CONFIGS:
                     response = await self.http.post("/api/simulate", json={"scenario_type": scenario})
@@ -262,6 +319,44 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             response = await self.http.post("/api/simulate", json={"scenario_type": "SNAD_MINOR"})
             self.assertEqual(response.status_code, 201)
             self.assertIn("unavailable", response.json()["message"])
+
+    async def test_triage_refund_passes_verified_capture_and_handles_outcomes(self):
+        from app.models.schemas import AIDecision
+        decision = AIDecision(recommended_action="REFUND", win_probability=0.1,
+                              expected_value=-10, reasoning="Refund justified", auto_execute=True)
+        for outcome in ("COMPLETED", "PENDING", "FAILED"):
+            response = await self.http.post("/api/simulate", json={"scenario_type": "INR_NO_TRACKING", "auto_triage": False})
+            local_id = response.json()["dispute_id"]
+            record = webhooks.SEED_DISPUTES[local_id]
+            record["paypal_dispute_id"] = "PP-D-1"
+            with (patch.object(disputes.claims_agent, "evaluate_dispute", AsyncMock(return_value=decision)),
+                  patch.object(disputes.rag_store, "elastic_client", None),
+                  patch.object(disputes.paypal_client, "resolve_capture_id", AsyncMock(return_value="CAPTURE123")) as resolve,
+                  patch.object(disputes.paypal_client, "create_refund", AsyncMock(return_value={"status": outcome})) as refund):
+                result = await self.http.post(f"/api/disputes/{local_id}/triage")
+                self.assertEqual(result.status_code, 200, result.text)
+                resolve.assert_awaited_once_with("PP-D-1", seller_id=record["seller_id"])
+                self.assertEqual(refund.await_args.kwargs["capture_id"], "CAPTURE123")
+                self.assertEqual(record["auto_executed"], outcome == "COMPLETED")
+                self.assertEqual(record["status"], "RESOLVED" if outcome == "COMPLETED" else "OPEN")
+
+    async def test_triage_does_not_refund_when_capture_resolution_fails(self):
+        from app.models.schemas import AIDecision
+        response = await self.http.post("/api/simulate", json={"scenario_type": "INR_NO_TRACKING", "auto_triage": False})
+        local_id = response.json()["dispute_id"]
+        record = webhooks.SEED_DISPUTES[local_id]
+        record["paypal_dispute_id"] = "PP-D-1"
+        decision = AIDecision(recommended_action="REFUND", win_probability=0.1,
+                              expected_value=-10, reasoning="Refund justified", auto_execute=True)
+        with (patch.object(disputes.claims_agent, "evaluate_dispute", AsyncMock(return_value=decision)),
+              patch.object(disputes.rag_store, "elastic_client", None),
+              patch.object(disputes.paypal_client, "resolve_capture_id", AsyncMock(side_effect=HTTPException(409, "missing capture"))),
+              patch.object(disputes.paypal_client, "create_refund", AsyncMock()) as refund):
+            result = await self.http.post(f"/api/disputes/{local_id}/triage")
+            self.assertEqual(result.status_code, 409)
+            refund.assert_not_awaited()
+            self.assertFalse(record["auto_executed"])
+            self.assertIsNone(record["action_taken"])
 
 
 if __name__ == "__main__":

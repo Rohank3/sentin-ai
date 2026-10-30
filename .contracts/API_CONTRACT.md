@@ -337,13 +337,14 @@ API Welcome overview and documentation links.
 ## PayPal Client Integration (implementation as of 2026-10-30)
 
 The following are internal async Python methods, not additional application HTTP
-endpoints. Each operation returns a dictionary except token retrieval (`str`) and
-signature verification (`bool`).
+endpoints. Each operation returns a dictionary except token retrieval and capture
+ID resolution (`str`), and signature verification (`bool`).
 
 | Method | PayPal endpoint / behavior |
 |---|---|
 | `get_access_token(seller_id="default", seller_client_id=None, seller_client_secret=None)` | `POST /v1/oauth2/token`; Basic authentication and form grant; token cache keyed by seller and credential fingerprint, with expiry margin and a refresh lock |
 | `get_dispute(dispute_id, seller_id="default")` | `GET /v1/customer/disputes/{id}` |
+| `resolve_capture_id(dispute_id, seller_id="default")` | Returns a capture ID (`str`): reads the dispute's single seller transaction and verifies it with `GET /v2/payments/captures/{id}`; refuses absent/ambiguous/unverified mappings; SIM- disputes return a synthetic SIM-CAPTURE- ID without HTTP |
 | `provide_evidence(dispute_id, carrier, tracking_number, notes, evidence_type="PROOF_OF_FULFILLMENT", seller_id="default")` | `POST /v1/customer/disputes/{id}/provide-evidence`; multipart `input` containing JSON fulfillment tracking evidence; other evidence types are not implemented |
 | `accept_claim(dispute_id, notes, seller_id="default")` | `POST /v1/customer/disputes/{id}/accept-claim`; JSON `note` |
 | `create_refund(capture_id, amount, currency="USD", note="Resolved via AI Dispute Management", seller_id="default", request_id=None)` | `POST /v2/payments/captures/{id}/refund`; JSON amount and payer note; `PayPal-Request-Id` header |
@@ -363,8 +364,10 @@ webhook verification never accepts mock success.
 - `verify_webhook_signature(headers: Mapping[str, str], event: dict) -> bool`
   verifies with PayPal using `PAYPAL_WEBHOOK_ID`. Verification never uses mock success.
 - `PAYPAL_SELLER_ID` (default `seller_acme`) maps the configured default app/webhook
-  to a local seller; other seller credentials are loaded from the Seller table.
-  Unknown sellers and incomplete credential pairs never use another seller's app.
+  to a local seller. Per DEC-014, named sellers use their complete database
+  credential pair first; when both fields are absent, platform credentials apply.
+  `default` uses platform credentials directly. Unknown sellers return 404;
+  incomplete pairs and database failures return 503 rather than silently falling back.
 - `PAYPAL_WEBHOOK_ID` (default unset) is required for the webhook endpoint.
   Missing configuration returns 503; missing/invalid signatures return 401;
   invalid payloads return 400; unavailable PayPal returns 502/503. These use
@@ -375,7 +378,7 @@ webhook verification never accepts mock success.
   reopen resolved records. Replay protection/storage is process-local, matching
   the existing dispute repository; persistent ingestion is a scaffold follow-up.
 - Webhook ingestion does not call the current stub triage automatically: it uses
-  fabricated tracking and a dispute ID as a capture ID. It records a pending
+  fabricated tracking. It records a pending
   integration audit entry until the owner connects verified transaction evidence.
 - Missing default credentials enable clearly marked offline client responses.
   Configured API failures return controlled errors, never simulated success.
@@ -389,11 +392,15 @@ Callers must reconcile uncertain outcomes before retrying. Separate intentional
 same-amount partial refunds need distinct request IDs; a retry of one operation
 must reuse its ID. Idempotency is subject to PayPal's retention window.
 
-**Credential policy integration note:** this describes the implementation on
-`feat/paypal-integration`. `dev` at `d2194d8` introduces DEC-014 with a different
-platform fallback policy and business/buyer account configuration. Reconciliation
-is pending Tech Lead review; this document does not supersede DEC-014 or claim its
-fallback policy is implemented. See [handoff status](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
+Triage REFUND now resolves and verifies the seller transaction as a Payments v2
+capture before issuing the refund. Missing or multiple transactions, simulated
+upstream data for a real dispute, or a mismatched capture response return 409
+without issuing a refund. Non-capture seller transactions are not converted by
+guessing: failed Payments lookup returns the existing upstream error.
+
+Credential precedence now follows upstream DEC-014; no decision is superseded.
+Shared configuration merge conflicts remain a Tech Lead handoff. See
+[handoff status](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
 
 ## Error Responses
 
@@ -407,7 +414,7 @@ Request-model validation errors use FastAPI's normal 422 `detail` array.
 | 400 | Invalid identifiers, refund/evidence inputs, webhook body/resource, or non-finite simulation amount |
 | 401 | Missing or invalid webhook signature when verification is configured |
 | 404 | Requested non-default seller not found |
-| 409 | Webhook dispute already belongs to another seller |
+| 409 | Webhook seller mismatch or missing/ambiguous/unverified refund capture mapping |
 | 422 | Simulation request fails Pydantic validation |
 | 502 | PayPal authentication failure, rejected API operation, or malformed upstream response |
 | 503 | Missing/incomplete required credentials or webhook ID, unavailable seller store, or PayPal request transport failure |

@@ -82,10 +82,10 @@ separate intentional partial refund of the same amount. PayPal controls the
 idempotency retention window. After a timeout, reconcile against PayPal before
 retrying. Configured API errors never become mock success responses.
 
-Default credentials apply only to `default` and `PAYPAL_SELLER_ID`. Other sellers
-are resolved through `Seller.paypal_client_id` / `paypal_client_secret` in the
-existing database. A missing seller or credentials returns an error and never
-uses the default merchant's credentials. The current webhook URL supports one
+Per DEC-014, `default` uses platform credentials directly. Named sellers first use
+their own `Seller.paypal_client_id` / `paypal_client_secret` pair; if both are
+absent, they fall back to the platform pair. Unknown sellers, incomplete pairs,
+and database failures return errors. The current webhook URL supports one
 configured app/seller per deployment; multi-app webhook registration routing is
 future shared-schema work.
 
@@ -95,11 +95,13 @@ The PayPal methods and verified ingestion are implemented. The Tech Lead's
 `routes_disputes.py` is still a stub and needs these changes before end-to-end
 real automatic execution is ready:
 
-- Resolve actual capture IDs; the triage route currently passes a dispute ID to
-  `create_refund`. The client rejects this instead of issuing an invalid refund.
+- Refund triage now resolves the dispute's single seller transaction and verifies
+  it with Payments v2 before using it as a capture ID. Missing, ambiguous, and
+  non-capture transactions fail without a refund; the PP- guard remains in place.
 - Supply transaction-specific evidence; manual execution currently uses hardcoded
   tracking, and automatic triage consumes stub RAG results.
-- Set `auto_executed` only after successful acknowledgement, handle SETTLE, and
+- Refund triage marks completion only for COMPLETED refunds. Review execution
+  acknowledgement in the other branches, handle SETTLE, and
   distinguish simulated actions and pending refunds in dashboard statistics.
 - Persist disputes, event IDs and ordering metadata in PostgreSQL. Current
   ingestion/deduplication is process-local (up to 10,000 recent event IDs), so run

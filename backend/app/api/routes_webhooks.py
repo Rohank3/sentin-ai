@@ -104,10 +104,10 @@ async def paypal_webhook_handler(request: Request):
     record["audit_log"].append({"action": "WEBHOOK_VERIFIED", "timestamp": now,
                                 "details": f"Verified {event.event_type}; event {event.id}."})
     if settings.auto_triage_enabled and record["status"] not in {"RESOLVED", "CLOSED"}:
-        # REQUEST: Tech Lead must connect real evidence/capture IDs in routes_disputes
+        # REQUEST: Tech Lead must connect real evidence in routes_disputes
         # before automatic execution of real webhooks can safely use that stub.
         record["audit_log"].append({"action": "TRIAGE_PENDING_INTEGRATION", "timestamp": now,
-                                    "details": "Verified case ingested. Real evidence and capture mapping require integration before automatic execution."})
+                                    "details": "Verified case ingested. Real evidence requires integration before automatic execution."})
     SEED_DISPUTES[record["id"]] = record
     _remember(event.id)
     return WebhookResponse(status="received", event_type=event.event_type)

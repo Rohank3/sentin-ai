@@ -1,13 +1,13 @@
 # Decision Registry
 
-> **PayPal integration review note (2026-10-30):** this feature branch's decision
-> registry predates DEC-012 through DEC-014 on `dev` at `d2194d8`. In particular,
-> upstream DEC-014 allows platform credential fallback for sellers lacking their
-> own credentials; this implementation limits platform credentials to `default`
-> and `PAYPAL_SELLER_ID`, and requires other sellers' own credential pairs.
-> This is an unresolved integration difference, not an approved supersession of
-> DEC-014. Tech Lead reconciliation is required before merging PR #5. Runtime
-> behavior and remaining acceptance work are recorded in [MODULES.md](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
+> **PayPal integration review resolution (2026-10-30):** credential precedence now
+> follows DEC-014 on `dev` at `d2194d8`: named sellers' complete credential pairs
+> take precedence, and both fields absent selects the platform credentials.
+> `default` uses platform credentials directly. Unknown sellers, incomplete pairs,
+> and database failures remain explicit errors. DEC-014 is not superseded.
+> This branch still predates the full upstream registry/configuration merge;
+> the Tech Lead owns those merge conflicts. Remaining acceptance work is recorded
+> in [MODULES.md](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
 
 > **How to use this file:**
 > - Before implementing anything, search for relevant decisions by module name.

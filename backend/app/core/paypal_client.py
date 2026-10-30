@@ -45,7 +45,7 @@ class PayPalClient:
         return pair if all(present) else (None, None)
 
     async def _seller_credentials(self, seller_id):
-        if seller_id in ("default", settings.paypal_seller_id):
+        if seller_id == "default":
             return self._get_credentials()
         from app.core.database import async_session_maker
         from app.models.db_models import Seller
@@ -54,6 +54,8 @@ class PayPalClient:
                 seller = await session.get(Seller, seller_id)
                 if seller is None:
                     raise HTTPException(404, "PayPal seller not found.")
+                if not seller.paypal_client_id and not seller.paypal_client_secret:
+                    return self._get_credentials()
                 pair = self._get_credentials(seller.paypal_client_id or "", seller.paypal_client_secret or "")
         except HTTPException:
             raise
@@ -137,6 +139,25 @@ class PayPalClient:
                           dispute_amount={"value": "149.99", "currency_code": "USD"},
                           reason="MERCHANDISE_OR_SERVICE_NOT_RECEIVED", dispute_life_cycle_stage="CHARGEBACK")
         return result
+
+    async def resolve_capture_id(self, dispute_id: str, seller_id: str = "default") -> str:
+        """Verify a single disputed seller transaction is a Payments v2 capture."""
+        _identifier(dispute_id)
+        if dispute_id.startswith("SIM-"):
+            return f"SIM-CAPTURE-{dispute_id[4:]}"
+        dispute = await self.get_dispute(dispute_id, seller_id=seller_id)
+        transactions = dispute.get("disputed_transactions")
+        if (dispute.get("simulated") or not isinstance(transactions, list)
+                or len(transactions) != 1 or not isinstance(transactions[0], dict)):
+            raise HTTPException(409, "A single verified payment capture is required for this dispute.")
+        capture_id = transactions[0].get("seller_transaction_id")
+        if (not isinstance(capture_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,255}", capture_id)
+                or capture_id.startswith(("PP-", "SIM-"))):
+            raise HTTPException(409, "Dispute has no valid seller payment transaction.")
+        capture = await self._request("GET", f"/v2/payments/captures/{capture_id}", seller_id)
+        if capture.get("simulated") or capture.get("id") != capture_id:
+            raise HTTPException(409, "Seller transaction could not be verified as a payment capture.")
+        return capture_id
 
     async def provide_evidence(self, dispute_id: str, carrier: str, tracking_number: str, notes: str,
                                evidence_type: str = "PROOF_OF_FULFILLMENT", seller_id: str = "default") -> Dict[str, Any]:
