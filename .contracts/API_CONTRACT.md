@@ -424,8 +424,72 @@ These guards share the existing single-process storage limitation; durable refun
 attempt records and cross-worker locking remain required before production use.
 
 Credential precedence now follows upstream DEC-014; no decision is superseded.
-Shared configuration merge conflicts remain a Tech Lead handoff. See
+Shared sandbox configuration from `dev` is integrated, including the optional
+`PAYPAL_BUSINESS_ACCOUNT` and `PAYPAL_BUYER_ACCOUNT` fields. See
 [handoff status](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
+
+## Database Entity Schemas
+
+### `Customer`
+Persisted shopper risk profile and historical dispute telemetry (`customers` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (UUID v4 or deterministic fixture slug, e.g. `cust_john_doe`) |
+| `paypal_payer_id` | `string(100)` | **Yes** | `null` | PayPal account Payer ID (indexed, unique if set) |
+| `email` | `string(255)` | No | N/A | Customer email address (unique) |
+| `full_name` | `string(255)` | No | `"Verified Buyer"` | Buyer full name |
+| `total_spend` | `float` | No | `0.0` | Lifetime settled purchase volume in USD |
+| `total_orders` | `int` | No | `0` | Total completed order count |
+| `dispute_count` | `int` | No | `0` | Number of past dispute claims filed |
+| `risk_score` | `float` | No | `0.1` | Risk factor score (0.00 lowest risk to 1.00 high risk) |
+| `created_at` | `datetime` (UTC) | No | `utc_now()` | Record creation timestamp |
+
+### `Seller`
+Merchant account credentials and dispute configuration (`sellers` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (UUID v4 or deterministic fixture slug, e.g. `seller_acme`) |
+| `name` | `string(255)` | No | N/A | Merchant business name |
+| `email` | `string(255)` | No | N/A | Merchant notification email (unique) |
+| `paypal_client_id` | `string(255)` | **Yes** | `null` | Seller PayPal Sandbox OAuth2 Client ID |
+| `paypal_client_secret` | `string(255)` | **Yes** | `null` | Seller PayPal Sandbox OAuth2 Secret |
+| `created_at` | `datetime` (UTC) | No | `utc_now()` | Record creation timestamp |
+
+### `Dispute`
+PayPal dispute records and autonomous arbitration decisions (`disputes` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (UUID v4 or deterministic fixture slug, e.g. `disp-101`) |
+| `paypal_dispute_id` | `string(100)` | No | N/A | PayPal Dispute ID (e.g., `PP-D-849201`, unique index) |
+| `seller_id` | `string(36)` | No | N/A | Foreign key to `sellers.id` |
+| `customer_id` | `string(36)` | No | N/A | Foreign key to `customers.id` |
+| `amount` | `float` | No | N/A | Dispute disputed value |
+| `currency` | `string(10)` | No | `"USD"` | ISO 4217 Currency code |
+| `reason` | `string(100)` | No | N/A | Dispute reason code (e.g., `ITEM_NOT_RECEIVED`) |
+| `status` | `string(50)` | No | `"OPEN"` | Status (`OPEN`, `UNDER_REVIEW`, `RESOLVED`, `CLOSED`) |
+| `ai_decision` | `json` | **Yes** | `null` | Serialized `AIDecision` from Gemini 2.0 Flash |
+| `ev_breakdown` | `json` | **Yes** | `null` | Serialized `EVResult` mathematical breakdown |
+| `evidence_snapshot` | `json` | **Yes** | `null` | Serialized `EvidenceSnapshot` (policies, PoD, buyer history) |
+| `auto_executed` | `boolean` | No | `false` | Whether action was autonomously dispatched |
+| `action_taken` | `string(50)` | **Yes** | `null` | Executed resolution action |
+| `created_at` | `datetime` (UTC) | No | `utc_now()` | Ingestion timestamp |
+| `updated_at` | `datetime` (UTC) | No | `utc_now()` | Last modification timestamp |
+
+### `AuditLog`
+Immutable dispute action audit trail (`audit_logs` table).
+
+| Field | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | `string(36)` | No | `generate_uuid()` | Primary Key (Standard UUID v4) |
+| `dispute_id` | `string(36)` | No | N/A | Foreign key to `disputes.id` (`ondelete="CASCADE"`) |
+| `action` | `string(100)` | No | N/A | Action identifier (e.g. `AI_EVALUATION_COMPLETED`) |
+| `details` | `text` | No | N/A | Detailed execution log or PayPal API response |
+| `timestamp` | `datetime` (UTC) | No | `utc_now()` | Event occurrence timestamp |
+
+---
 
 ## Error Responses
 
@@ -466,3 +530,59 @@ require `error_code` or `timestamp` on its current responses:
 | `500` | `PAYPAL_API_ERROR` | PayPal API call failed |
 | `500` | `AI_ENGINE_ERROR` | Gemini API call failed |
 | `500` | `ELASTIC_ERROR` | Elasticsearch query failed |
+
+
+---
+
+## PayPal Sandbox Integration Specification
+
+### 1. Environments & Base URLs
+- **Sandbox Base URL:** `https://api-m.sandbox.paypal.com`
+- **Merchant Sandbox Portal:** `https://sandbox.paypal.com` (Login using business test account)
+- **Buyer Sandbox Portal:** `https://sandbox.paypal.com` (Login using personal test account)
+
+### 2. Test Account Topology
+| Account Role | Type | Env Variable | Purpose |
+|---|---|---|---|
+| Merchant / Seller | Business | `PAYPAL_BUSINESS_ACCOUNT` | Store protected by Sentin AI. Associated with REST App credentials (`PAYPAL_CLIENT_ID`). |
+| Buyer / Shopper | Personal | `PAYPAL_BUYER_ACCOUNT` | Customer filing INR/SNAD dispute claims against the merchant. |
+
+### 3. Server-Side PayPal Endpoints Handled by `paypal_client.py`
+
+#### `POST /v1/oauth2/token`
+Retrieves an OAuth2 bearer token for sandbox API interactions.
+- **Headers:** `Authorization: Basic base64(PAYPAL_CLIENT_ID:PAYPAL_CLIENT_SECRET)`
+- **Body:** `grant_type=client_credentials`
+
+#### `GET /v1/customer/disputes/{dispute_id}`
+Retrieves dispute state, customer claim details, and evidence deadlines.
+- **Note on Deadlines:** Evidence deadline fields (`seller_response_due_date`) are conditional and present only when merchant action is actively required. In resolved disputes, closed states, or local mock fallback responses, deadline fields are optional or omitted.
+
+#### `POST /v1/customer/disputes/{dispute_id}/provide-evidence`
+Submits carrier Proof-of-Delivery tracking and store policy documentation.
+- **Defense Notes Content:** The `notes` field represents the synthesized merchant defense narrative incorporating cited store policy clauses alongside courier delivery verification.
+- **Request Schema:**
+```json
+{
+  "evidences": [
+    {
+      "evidence_type": "PROOF_OF_FULFILLMENT",
+      "evidence_info": {
+        "tracking_info": [
+          {
+            "carrier_name": "FEDEX",
+            "tracking_number": "TRK-98234-FDX"
+          }
+        ]
+      },
+      "notes": "Delivered with signature confirmation under merchant return policy terms."
+    }
+  ]
+}
+```
+
+#### `POST /v1/customer/disputes/{dispute_id}/accept-claim`
+Accepts customer dispute claim. Programmatically dispatched when settling is mathematically optimal (`EV(Settle) > EV(Contest)` within autonomy thresholds), or manually authorized as an advisory executive override by a human supervisor via the AG Studio command center.
+
+#### `POST /v2/payments/captures/{capture_id}/refund`
+Submits a payment refund request to PayPal. The response status may be `COMPLETED`, `PENDING`, `FAILED`, or `CANCELLED`. Callers must confirm `status === "COMPLETED"` before treating the dispute as formally refunded and resolved.

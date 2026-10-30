@@ -5,8 +5,8 @@
 > take precedence, and both fields absent selects the platform credentials.
 > `default` uses platform credentials directly. Unknown sellers, incomplete pairs,
 > and database failures remain explicit errors. DEC-014 is not superseded.
-> This branch still predates the full upstream registry/configuration merge;
-> the Tech Lead owns those merge conflicts. Remaining acceptance work is recorded
+> The upstream registry/configuration is now integrated from `dev`.
+> Remaining acceptance work is recorded
 > in [MODULES.md](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
 
 > **How to use this file:**
@@ -160,3 +160,50 @@
 - **Decision:** REST API with OpenAPI auto-docs
 - **Rationale:** FastAPI auto-generates interactive docs at `/docs`. Frontend team uses this as the living API contract. AG Studio can consume REST endpoints.
 - **Impacted Modules:** All route files, `api.ts`
+
+---
+
+## DEC-012: Policy & PoD Knowledge Base Architecture
+
+- **Status:** `ACTIVE`
+- **Date:** 2026-10-25
+- **Decision:** Dual JSON fixtures + SQLite vector fallback transitioning to Elasticsearch 8.x
+- **Rationale:** Seed fixtures in `backend/seed/` (`policies.json`, `carriers.json`, `customers.json`) provide immediate reproducibility without external dependencies.
+- **Impacted Modules:** `backend/seed/*`, `backend/app/engine/rag_store.py`
+
+---
+
+## DEC-013: Alembic Database Versioning & Migrations
+
+- **Status:** `ACTIVE`
+- **Date:** 2026-10-25
+- **Decision:** Async Alembic database versioning for SQLite and PostgreSQL schemas
+- **Rationale:** Enables non-destructive database evolution, repeatable environment teardown, and clean multi-developer migration parity.
+- **Impacted Modules:** `backend/alembic.ini`, `backend/alembic/*`, `backend/app/models/db_models.py`
+
+---
+
+## DEC-014: PayPal Sandbox Credential & Multi-Account Topology
+
+- **Status:** `ACTIVE`
+- **Date:** 2026-10-26
+- **Decision:** Establish a unified team PayPal Developer Sandbox App and explicit Account Topology, harmonized with DEC-008.
+- **Credential Resolution Precedence (Harmonized with DEC-008)**:
+  1. **Per-Seller Credentials (DEC-008)**: If a seller record in the database (`sellers` table) provides custom `paypal_client_id` and `paypal_client_secret`, `paypal_client.py` uses that seller's credentials for all dispute and payment actions.
+  2. **Platform Default Fallback**: If seller credentials are null or unspecified, the client automatically defaults to the platform-level OAuth credentials configured in `.env` (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`), with merchant-scoped operations identified by `PAYPAL_BUSINESS_ACCOUNT`.
+- **Account Topology:**
+  - **Merchant / Seller (Business)**: Configured in `backend/.env` via `PAYPAL_BUSINESS_ACCOUNT`
+    - Role: Primary commerce store protected by Sentin AI. Associated with the developer REST App credentials (`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).
+    - API actions: Receives customer dispute events, responds with Proof-of-Fulfillment (`/v1/customer/disputes/{id}/provide-evidence`), accepts claims (`/accept-claim`), or issues refunds (`/v2/payments/captures/{id}/refund`).
+  - **Buyer / Customer (Personal)**: Configured in `backend/.env` via `PAYPAL_BUYER_ACCOUNT`
+    - Role: Customer account for purchasing sandbox orders and filing INR (Item Not Received) or SNAD (Significantly Not As Described) claims via `sandbox.paypal.com` or the PayPal Webhook Simulator.
+- **Credential Distribution Strategy:**
+  - **Single Shared `.env`**: Shared privately among all 5 team members via secure internal chat (never committed to GitHub).
+  - **Rationale for Shared Credentials**:
+    1. **Dispute State Parity**: Disputes in PayPal Sandbox belong to the merchant receiving them. Sharing the merchant credentials guarantees every teammate sees the exact same disputes in their dashboard.
+    2. **Webhook Uniformity**: Webhooks are configured per App ID. A shared App ensures uniform webhook payloads for local and simulation testing.
+    3. **Zero Friction**: Teammates do not need to register separate developer accounts or generate disjoint credentials.
+- **Module Ownership & Team Role Division:**
+  - **Tech Lead (`feat/core-scaffold`)**: Owns `.env.example`, sandbox configuration schema (`backend/app/core/config.py`), local `.env` setup, and architecture contracts.
+  - **PayPal API Dev (`feat/paypal-integration`)**: Implements and validates active sandbox communication in `paypal_client.py`, webhook ingestion in `routes_webhooks.py`, and test scenarios in `routes_simulate.py`.
+- **Impacted Modules:** `backend/app/core/config.py`, `backend/app/core/paypal_client.py`, `backend/.env.example`, `DEVELOPMENT.md`, `.contracts/API_CONTRACT.md`

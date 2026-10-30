@@ -38,7 +38,10 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env.docker
+        required: true
+      - path: ./backend/.env
+        required: false
     depends_on:
       db:
         condition: service_healthy

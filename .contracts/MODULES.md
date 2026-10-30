@@ -47,9 +47,10 @@ The simulator's STABLE status applies to local scenario injection only.
 
 ### Remaining ownership and acceptance gates
 
-1. **Tech Lead:** resolve shared configuration and contract conflicts against
-   `dev` (`.contracts/CHANGELOG.md`, `backend/.env.example`, `backend/app/core/config.py`).
-   Credential precedence now conforms to DEC-014; no supersession is needed.
+1. **Integration completed (2026-10-31):** shared configuration and contract
+   conflicts against `dev` resolved at the user-relayed Tech Lead request.
+   Both sandbox account fields and webhook seller routing are retained.
+   Credential precedence conforms to DEC-014; no supersession is needed.
 2. **Tech Lead with AI owner:** connect transaction-specific evidence; handle
    SETTLE and simulated outcomes throughout the dashboard. Refund triage now verifies
    capture IDs and marks REFUNDED only on COMPLETED; other action branches still

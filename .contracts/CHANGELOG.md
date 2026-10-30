@@ -2,6 +2,12 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-10-31] Integrate dev sandbox setup into PayPal feature branch
+- User relayed the Tech Lead request to pull dev and resolve integration conflicts.
+- Combine upstream account fields, schema/seed updates, and DEC-012 through DEC-014 with existing PayPal implementation and refund safeguards.
+- Preserve PAYPAL_SELLER_ID and an unset webhook default alongside PAYPAL_BUSINESS_ACCOUNT and PAYPAL_BUYER_ACCOUNT; no environment variables renamed.
+- Reconcile both contract histories and retain outstanding real Sandbox acceptance gates.
+
 ## [2026-10-31] Separate payer messaging from internal refund reasoning
 - Replace the truncated AI reasoning in the triage refund note with a fixed,
   neutral payer message containing no dynamic input or risk analysis.
@@ -61,6 +67,21 @@ All interface modifications, schema migrations, and architecture pivots must be 
   mark execution successful only after API acknowledgement; replace hardcoded
   evidence in routes_disputes.py before enabling automatic webhook triage.
 - No changes to other owners' dispute/AI/frontend implementations.
+
+## [2026-10-26] PayPal Sandbox Credential & Account Topology Specification
+- Logged DEC-014 in `DECISIONS.md`: Documented shared team Sandbox credential strategy and multi-account topology.
+- Added Sandbox Merchant Business account (`PAYPAL_BUSINESS_ACCOUNT`) and Buyer Personal account (`PAYPAL_BUYER_ACCOUNT`).
+- Updated `backend/.env.example` and `backend/app/core/config.py` with PayPal Sandbox account fields and reference IDs.
+- Documented PayPal Disputes v1 and Payments v2 Sandbox API endpoints in `API_CONTRACT.md`.
+
+## [2026-10-26] Schema Harmonization & Docker Environment Hardening
+- Harmonized `Customer` SQLAlchemy model, Alembic initial migration (`0001_initial_schema`), and `customers.json` fixtures (`full_name`, `total_spend`, `total_orders`, nullable `paypal_payer_id`).
+- Documented persisted database entity schemas and field nullability in `API_CONTRACT.md` (`Customer`, `Seller`, `Dispute`, `AuditLog`).
+- Fixed bidirectional relationship mapping between `Dispute` and `Customer` (`back_populates="disputes"`).
+- Registered models prior to `Base.metadata.create_all` in `init_db()` and decoupled seller/customer seeding with idempotent key checks.
+- Added `sellers.json` seed fixtures and `seed_database()` routine for automated DB initialization.
+- Hardened `docker-compose.yml` with tiered `env_file` layering (`backend/.env.docker` container defaults overridden by optional `backend/.env`), preserving custom URLs while preventing localhost fallback when `.env` is absent.
+- Expanded contract and schema unit tests from 5 to 8 tests covering schema parsing and customer fixture constraints.
 
 ## [2026-10-25] Initial System Scaffold & Contract Freeze
 - Initialized core architecture contracts (`AGENT_RULES.md`, `MODULES.md`, `DECISIONS.md`, `API_CONTRACT.md`).
