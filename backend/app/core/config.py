@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     paypal_business_account: Optional[str] = Field(default=None)
     paypal_buyer_account: Optional[str] = Field(default=None)
     paypal_webhook_id: Optional[str] = Field(default=None)
+    paypal_seller_id: str = Field(default="seller_acme")
 
     # Autonomy & Decision Thresholds
     auto_triage_enabled: bool = Field(default=True)

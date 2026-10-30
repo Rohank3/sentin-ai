@@ -191,7 +191,15 @@ Get dashboard-level aggregate statistics.
 
 #### `POST /api/simulate`
 
-Create a dispute in the PayPal sandbox for demo purposes.
+Create a local, explicitly simulated dispute for demo purposes. This endpoint does
+not create a PayPal case. IDs start with `SIM-`; all subsequent PayPal operations
+on those IDs stay simulated even when sandbox credentials are configured.
+
+Only `scenario_type` is required. Omitted `amount`, `reason`, and `customer_email`
+use scenario defaults; explicitly supplied values are preserved. `auto_triage`
+defaults to `true`. The record is stored in the existing in-memory repository.
+Scenario labels do not guarantee distinct AI outcomes while AI/RAG dependencies
+remain stubs.
 
 **Request Body:**
 ```json
@@ -216,13 +224,18 @@ Create a dispute in the PayPal sandbox for demo purposes.
 **Response:** `201 Created`
 ```json
 {
-  "dispute_id": "uuid",
-  "paypal_dispute_id": "PP-D-xxxxx",
+  "dispute_id": "disp-0123456789abcdef0123456789abcdef",
+  "paypal_dispute_id": "SIM-0123456789ABCDEF0123456789ABCDEF",
   "scenario_type": "INR_WITH_TRACKING",
   "status": "CREATED",
-  "message": "Sandbox dispute created. Triage triggered automatically."
+  "message": "Local simulation created. Triage completed. No PayPal case was created."
 }
 ```
+
+`status: CREATED` acknowledges local record creation, not successful PayPal
+execution. The message reports `Triage completed.`, `Triage not requested.`, or
+`Triage unavailable; retry from the dashboard.`. Triage failure still returns
+201, records `TRIAGE_FAILED`, and leaves the record OPEN without an executed action.
 
 ---
 
@@ -230,7 +243,9 @@ Create a dispute in the PayPal sandbox for demo purposes.
 
 #### `POST /api/webhooks/paypal`
 
-Receive PayPal dispute event webhooks.
+Receive and verify `CUSTOMER.DISPUTE.CREATED`, `CUSTOMER.DISPUTE.UPDATED`, and
+`CUSTOMER.DISPUTE.RESOLVED` events. Requires the configured app's credentials and
+`PAYPAL_WEBHOOK_ID`; offline demos must use `/api/simulate`.
 
 **Headers:**
 - `PayPal-Transmission-Id`
@@ -239,7 +254,13 @@ Receive PayPal dispute event webhooks.
 - `PayPal-Cert-Url`
 - `PayPal-Auth-Algo`
 
-**Request Body:** PayPal webhook event payload (see PayPal docs)
+**Request Body:** PayPal webhook event payload. Required envelope fields are
+`id`, `event_type`, timezone-aware `create_time`, and object `resource`.
+Supported events require `resource.dispute_id` beginning with `PP-`. A new record
+also requires `resource.reason` and `resource.dispute_amount` containing a finite,
+positive `value` and a three-uppercase-letter `currency_code`. Existing records
+can receive partial updates. `resource.update_time`, when present, must include
+a timezone and is used instead of the event timestamp for ordering.
 
 **Response:** `200 OK`
 ```json
@@ -248,6 +269,25 @@ Receive PayPal dispute event webhooks.
   "event_type": "CUSTOMER.DISPUTE.CREATED"
 }
 ```
+
+`status` is `received` for an applied event, `duplicate` for a remembered event ID,
+or `ignored` for unsupported event types, stale updates, and attempts to reopen
+terminal records. Signature verification precedes these acknowledgements.
+
+State is upserted by PayPal dispute ID and scoped to `PAYPAL_SELLER_ID`.
+`WAITING_FOR_SELLER_RESPONSE` maps to OPEN; `WAITING_FOR_BUYER_RESPONSE` maps to
+UNDER_REVIEW; a RESOLVED event sets RESOLVED. INR/SNAD PayPal reason names map to
+the application's reason names. Other reason strings are retained.
+
+The first disputed transaction can supply the buyer email and seller transaction
+reference. That reference is not assumed to be a Payments v2 capture ID.
+Ingestion records `WEBHOOK_VERIFIED`. With auto-triage enabled, non-terminal cases
+also record `TRIAGE_PENDING_INTEGRATION`; real webhook ingestion does not invoke
+the existing stub triage pipeline.
+
+Replay protection remembers at most 10,000 event IDs in this process. Disputes,
+ordering metadata, and event IDs are not persisted across restarts or shared
+between workers. This is a single-worker demo implementation, not durable delivery.
 
 ---
 
@@ -293,6 +333,100 @@ System health check endpoint.
 API Welcome overview and documentation links.
 
 ---
+
+## PayPal Client Integration (implementation as of 2026-10-30)
+
+The following are internal async Python methods, not additional application HTTP
+endpoints. Each operation returns a dictionary except token retrieval and capture
+ID resolution (`str`), and signature verification (`bool`).
+
+| Method | PayPal endpoint / behavior |
+|---|---|
+| `get_access_token(seller_id="default", seller_client_id=None, seller_client_secret=None)` | `POST /v1/oauth2/token`; Basic authentication and form grant; token cache keyed by seller and credential fingerprint, with expiry margin and a refresh lock |
+| `get_dispute(dispute_id, seller_id="default")` | `GET /v1/customer/disputes/{id}` |
+| `resolve_capture_id(dispute_id, seller_id="default")` | Returns a capture ID (`str`): reads the dispute's single seller transaction and verifies it with `GET /v2/payments/captures/{id}`; refuses absent/ambiguous/unverified mappings; SIM- disputes return a synthetic SIM-CAPTURE- ID without HTTP |
+| `provide_evidence(dispute_id, carrier, tracking_number, notes, evidence_type="PROOF_OF_FULFILLMENT", seller_id="default")` | `POST /v1/customer/disputes/{id}/provide-evidence`; multipart `input` containing JSON fulfillment tracking evidence; other evidence types are not implemented |
+| `accept_claim(dispute_id, notes, seller_id="default")` | `POST /v1/customer/disputes/{id}/accept-claim`; JSON `note` |
+| `create_refund(capture_id, amount, currency="USD", note="Resolved via AI Dispute Management", seller_id="default", request_id=None)` | `POST /v2/payments/captures/{id}/refund`; JSON amount and payer note; `PayPal-Request-Id` header |
+| `get_refund(refund_id, seller_id="default")` | `GET /v2/payments/refunds/{id}`; requires a matching real refund ID in the response; mock responses cannot authorize retries |
+| `verify_webhook_signature(headers, event)` | `POST /v1/notifications/verify-webhook-signature`; five transmission headers, webhook registration ID, and original parsed event |
+
+Successful nonempty upstream object responses are returned unchanged. An empty
+success body becomes `{"status":"SUCCESS"}`. This acknowledgement is not proof
+that a capture refund completed: callers must inspect the refund's actual status
+and confirm COMPLETED before marking it refunded. Missing credentials produce
+explicit `simulated: true` results only for eligible demo/default operations;
+webhook verification never accepts mock success.
+
+- Existing client method signatures remain supported. `create_refund` additionally
+  accepts optional `request_id: str | None` for caller-controlled idempotency.
+  Without it, one deterministic key per seller/capture/amount/currency is used;
+  distinct intentional partial refunds of the same amount need distinct keys.
+- `verify_webhook_signature(headers: Mapping[str, str], event: dict) -> bool`
+  verifies with PayPal using `PAYPAL_WEBHOOK_ID`. Verification never uses mock success.
+- `PAYPAL_SELLER_ID` (default `seller_acme`) maps the configured default app/webhook
+  to a local seller. Per DEC-014, named sellers use their complete database
+  credential pair first; when both fields are absent, platform credentials apply.
+  `default` uses platform credentials directly. Unknown sellers return 404;
+  incomplete pairs and database failures return 503 rather than silently falling back.
+- `PAYPAL_WEBHOOK_ID` (default unset) is required for the webhook endpoint.
+  Missing configuration returns 503; missing/invalid signatures return 401;
+  invalid payloads return 400; unavailable PayPal returns 502/503. These use
+  FastAPI's `{"detail": "..."}` error envelope, as do the existing routes.
+- Valid unsupported event types return `status: ignored`. Recognized events return
+  `received`; duplicate event IDs return `duplicate`. CREATED/UPDATED upsert by
+  PayPal dispute ID; RESOLVED closes the existing record. Stale timestamps cannot
+  reopen resolved records. Replay protection/storage is process-local, matching
+  the existing dispute repository; persistent ingestion is a scaffold follow-up.
+- Webhook ingestion does not call the current stub triage automatically: it uses
+  fabricated tracking. It records a pending
+  integration audit entry until the owner connects verified transaction evidence.
+- Missing default credentials enable clearly marked offline client responses.
+  Configured API failures return controlled errors, never simulated success.
+  The simulator continues offline regardless of external credentials.
+- Refunds require a capture ID, never a PayPal dispute ID. Monetary values must
+  be finite, positive and use the supported currency's precision.
+
+On an upstream 401 the client invalidates the seller's cached token and retries
+once. It does not automatically replay timeouts or other rejected mutations.
+Callers must reconcile uncertain outcomes before retrying. Separate intentional
+same-amount partial refunds need distinct request IDs; a retry of one operation
+must reuse its ID. Idempotency is subject to PayPal's retention window.
+
+Triage REFUND now resolves and verifies the seller transaction as a Payments v2
+capture before issuing the refund. Missing or multiple transactions, simulated
+upstream data for a real dispute, or a mismatched capture response return 409
+without issuing a refund. Non-capture seller transactions are not converted by
+guessing: failed Payments lookup returns the existing upstream error.
+
+Triage rejects already RESOLVED/REFUNDED records with 409 before capture lookup.
+It records refund request ID, refund ID (when returned), and outcome in the
+process-local dispute record. Triage supplies the fixed payer-facing message
+`A refund has been requested for your purchase.` before recording UNKNOWN.
+The note contains no AI reasoning, risk assessments, personal data, or interpolated
+user input and is below the 255-character limit. Full reasoning is retained in
+the existing internal decision and audit record, never in this refund note.
+The demo repository/API has no access control or durable protected storage;
+deployment must restrict access to these internal records. This change does not
+add authentication or claim that the current demo storage is protected.
+Before issuing a refund it records UNKNOWN; a
+timeout or missing response therefore cannot silently permit a second attempt.
+The initial request ID is deterministic per seller/dispute; a new key is allocated
+only after a reconciled terminal failure. This supplements, but does not replace,
+durable attempt storage or extend PayPal's idempotency retention window.
+On subsequent triage, any recorded refund attempt is reconciled via `get_refund`:
+COMPLETED marks the dispute refunded and rejects repeat execution; only confirmed
+FAILED/CANCELLED permits a new attempt with a new request ID. PENDING, unknown
+status, missing refund ID, mismatched/mock data, and lookup errors block retry.
+Missing refund IDs require manual reconciliation; there is no automatic guessing
+from capture totals. Concurrent triage of one record is rejected with 409.
+These guards share the existing single-process storage limitation; durable refund
+attempt records and cross-worker locking remain required before production use.
+
+Credential precedence now follows upstream DEC-014; no decision is superseded.
+Shared sandbox configuration from `dev` is integrated, including the optional
+`PAYPAL_BUSINESS_ACCOUNT` and `PAYPAL_BUYER_ACCOUNT` fields. See
+[handoff status](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
 
 ## Database Entity Schemas
 
@@ -359,7 +493,26 @@ Immutable dispute action audit trail (`audit_logs` table).
 
 ## Error Responses
 
-All errors follow this format:
+### Implemented PayPal and simulation errors
+
+Explicit errors use FastAPI's `{"detail": "Human-readable message"}` envelope.
+Request-model validation errors use FastAPI's normal 422 `detail` array.
+
+| HTTP status | Condition |
+|---|---|
+| 400 | Invalid identifiers, refund/evidence inputs, webhook body/resource, or non-finite simulation amount |
+| 401 | Missing or invalid webhook signature when verification is configured |
+| 404 | Requested non-default seller not found |
+| 409 | Webhook seller mismatch; missing/ambiguous/unverified capture mapping; completed refund, concurrent triage, or refund outcome not safe to retry |
+| 422 | Simulation request fails Pydantic validation |
+| 502 | PayPal authentication failure, rejected API operation, or malformed upstream response |
+| 503 | Missing/incomplete required credentials or webhook ID, unavailable seller store, or PayPal request transport failure |
+
+### Planned shared error envelope
+
+The following shared error format/codes are a target for cross-module integration;
+they are not currently emitted by the PayPal implementation. Consumers must not
+require `error_code` or `timestamp` on its current responses:
 
 ```json
 {

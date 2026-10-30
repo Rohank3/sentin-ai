@@ -1,5 +1,14 @@
 # Decision Registry
 
+> **PayPal integration review resolution (2026-10-30):** credential precedence now
+> follows DEC-014 on `dev` at `d2194d8`: named sellers' complete credential pairs
+> take precedence, and both fields absent selects the platform credentials.
+> `default` uses platform credentials directly. Unknown sellers, incomplete pairs,
+> and database failures remain explicit errors. DEC-014 is not superseded.
+> The upstream registry/configuration is now integrated from `dev`.
+> Remaining acceptance work is recorded
+> in [MODULES.md](MODULES.md#paypal-delivery-and-acceptance-status-2026-10-30).
+
 > **How to use this file:**
 > - Before implementing anything, search for relevant decisions by module name.
 > - If your work contradicts an ACTIVE decision, do NOT proceed — discuss with the Tech Lead.
