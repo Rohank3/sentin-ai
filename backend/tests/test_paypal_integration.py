@@ -399,6 +399,29 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             refund.assert_not_awaited()
             self.assertTrue(record["auto_executed"])
 
+    async def test_refund_note_is_bounded_before_real_client_validation(self):
+        for length in (254, 255, 256, 2000):
+            with self.subTest(length=length):
+                record = await self._refund_case()
+                reasoning = "R" * length
+                with ExitStack() as stack:
+                    _, refund = self._refund_dependencies(stack)
+                    disputes.claims_agent.evaluate_dispute.return_value.reasoning = reasoning
+                    async def real_refund(**kwargs):
+                        return await PayPalClient.create_refund(disputes.paypal_client, **kwargs)
+                    refund.side_effect = real_refund
+                    async def upstream(method, path, seller_id, **kwargs):
+                        self.assertEqual(record["paypal_refund_state"], "UNKNOWN")
+                        self.assertEqual(kwargs["payload"]["note_to_payer"], reasoning[:255])
+                        return {"id": "R-1", "status": "COMPLETED"}
+                    request = stack.enter_context(patch.object(disputes.paypal_client, "_request", AsyncMock(side_effect=upstream)))
+                    result = await self.http.post(f"/api/disputes/{record['id']}/triage")
+                    self.assertEqual(result.status_code, 200, result.text)
+                    request.assert_awaited_once()
+                    self.assertEqual(record["paypal_refund_state"], "COMPLETED")
+                    self.assertEqual(record["ai_decision"]["reasoning"], reasoning)
+                    self.assertIn(reasoning, record["audit_log"][-1]["details"])
+
     async def test_uncertain_refund_reconciles_before_any_retry(self):
         for status in ("COMPLETED", "PENDING", "UNKNOWN", None):
             record = await self._refund_case()

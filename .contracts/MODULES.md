@@ -38,7 +38,7 @@ The simulator's STABLE status applies to local scenario injection only.
 |---|---|
 | OAuth authentication | Real Sandbox access token obtained; credentials/token not logged or committed |
 | Sandbox API access | Read-only webhook-list and dispute-list calls returned HTTP 200; both returned zero records at the check |
-| Client requests and failures | 32 automated tests passed using httpx MockTransport and ASGI; includes completed/concurrent refund rejection, PayPal reconciliation before retry, timeout/outage handling, DEC-014 credential precedence, capture resolution, token cache/refresh, evidence encoding, signatures, deduplication, and offline scenarios |
+| Client requests and failures | 33 automated tests passed using httpx MockTransport and ASGI; includes refund note length boundaries, completed/concurrent refund rejection, PayPal reconciliation before retry, timeout/outage handling, DEC-014 credential precedence, capture resolution, token cache/refresh, evidence encoding, signatures, deduplication, and offline scenarios |
 | Existing baseline checks | 5 contract tests, backend compilation, and frontend production build passed on this branch |
 | Local execution | Dashboard and API/docs responded HTTP 200; local simulation returned HTTP 201 with a SIM- ID |
 | Signed webhook delivery | Not tested against a real PayPal case; no registration or webhook ID configured at the check |

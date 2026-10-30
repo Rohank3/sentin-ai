@@ -2,6 +2,13 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-10-31] Refund note length review fix
+- Bound the triage refund note to 255 characters before recording an UNKNOWN
+  attempt. Preserve full reasoning in the AI decision and audit details.
+- Add boundary regression coverage through the real client validation path;
+  timeout/reconciliation protections remain unchanged.
+- User-authorized narrow shared triage change documented for Tech Lead review in PR #5.
+
 ## [2026-10-31] Refund retry review fix
 - Reject completed refunds before triage/capture lookup and reject concurrent
   triage of the same process-local dispute record.

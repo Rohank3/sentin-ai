@@ -401,7 +401,9 @@ guessing: failed Payments lookup returns the existing upstream error.
 
 Triage rejects already RESOLVED/REFUNDED records with 409 before capture lookup.
 It records refund request ID, refund ID (when returned), and outcome in the
-process-local dispute record. Before issuing a refund it records UNKNOWN; a
+process-local dispute record. Triage bounds the payer-facing refund note to 255
+characters before recording UNKNOWN, while retaining full AI reasoning in the
+decision and audit log. Before issuing a refund it records UNKNOWN; a
 timeout or missing response therefore cannot silently permit a second attempt.
 The initial request ID is deterministic per seller/dispute; a new key is allocated
 only after a reconciled terminal failure. This supplements, but does not replace,

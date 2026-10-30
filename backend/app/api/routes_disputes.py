@@ -379,6 +379,8 @@ async def _triage_dispute(dispute: Dict[str, Any]):
             capture_id = await paypal_client.resolve_capture_id(
                 dispute["paypal_dispute_id"], seller_id=dispute["seller_id"]
             )
+            # PayPal's payer note is shorter than the internal AI reasoning.
+            refund_note = decision.reasoning[:255]
             # Record uncertainty BEFORE dispatch, including cancellation/timeouts.
             if dispute.get("paypal_refund_state") in {"FAILED", "CANCELLED"}:
                 request_id = str(uuid.uuid4())  # Reconciled terminal failure: new attempt.
@@ -392,7 +394,7 @@ async def _triage_dispute(dispute: Dict[str, Any]):
                 capture_id=capture_id,
                 amount=dispute["amount"],
                 currency=dispute["currency"],
-                note=decision.reasoning,
+                note=refund_note,
                 seller_id=dispute["seller_id"],
                 request_id=request_id
             )
