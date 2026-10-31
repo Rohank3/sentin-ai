@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   X,
   ShieldCheck,
@@ -19,7 +19,7 @@ import {
   Handshake,
   AlertTriangle,
 } from "lucide-react";
-import { DisputeDetail, api } from "@/lib/api";
+import { DisputeDetail, api, ApiError } from "@/lib/api";
 
 interface DisputeDetailDrawerProps {
   dispute: DisputeDetail | null;
@@ -96,37 +96,74 @@ interface ExecutionFeedback {
   message: string;
 }
 
-// Reusable Accessible Copy Button
+// Reusable Accessible Copy Button with failure feedback and cleanup
 const CopyButton: React.FC<{ value?: string | null; label: string }> = ({ value, label }) => {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   if (!value || typeof value !== "string" || !value.trim()) return null;
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        setCopyStatus("copied");
+        timeoutRef.current = setTimeout(() => setCopyStatus("idle"), 2000);
+      } else {
+        setCopyStatus("failed");
+        timeoutRef.current = setTimeout(() => setCopyStatus("idle"), 3000);
       }
     } catch (err) {
       console.warn("Failed to copy to clipboard:", err);
+      setCopyStatus("failed");
+      timeoutRef.current = setTimeout(() => setCopyStatus("idle"), 3000);
     }
   };
+
+  const titleText =
+    copyStatus === "copied"
+      ? "Copied to clipboard!"
+      : copyStatus === "failed"
+      ? `Failed to copy ${label}`
+      : `Copy ${label}`;
+
+  const ariaLabelText =
+    copyStatus === "copied"
+      ? `${label} copied to clipboard`
+      : copyStatus === "failed"
+      ? `Failed to copy ${label} to clipboard`
+      : `Copy ${label} to clipboard`;
 
   return (
     <button
       onClick={handleCopy}
       type="button"
-      className="inline-flex items-center gap-1 p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
-      title={copied ? "Copied to clipboard!" : `Copy ${label}`}
-      aria-label={copied ? `${label} copied` : `Copy ${label} to clipboard`}
+      className="inline-flex items-center gap-1 p-1 rounded hover:bg-slate-800 active:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+      title={titleText}
+      aria-label={ariaLabelText}
     >
-      {copied ? (
+      {copyStatus === "copied" ? (
         <>
           <Check className="w-3.5 h-3.5 text-emerald-400" />
           <span className="text-[10px] text-emerald-400 font-semibold">Copied</span>
+        </>
+      ) : copyStatus === "failed" ? (
+        <>
+          <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+          <span className="text-[10px] text-rose-400 font-semibold">Failed</span>
         </>
       ) : (
         <Copy className="w-3.5 h-3.5" />
@@ -134,6 +171,9 @@ const CopyButton: React.FC<{ value?: string | null; label: string }> = ({ value,
     </button>
   );
 };
+
+// Track uncertain dispute IDs across transient drawer open/close and component mount lifecycles
+const persistentUncertainLocks = new Set<string>();
 
 export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   dispute,
@@ -146,20 +186,46 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingActionState | null>(null);
   const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState<ExecutionFeedback | null>(null);
+  const [refreshingAuthoritative, setRefreshingAuthoritative] = useState(false);
 
-  // Sync internal dispute when prop updates, and reset dispute-bound staging state when dispute changes or drawer closes
+  // Per-dispute outcome lock tracking: survives drawer close/reopen
+  const [lockedDisputeIds, setLockedDisputeIds] = useState<Set<string>>(
+    () => new Set(persistentUncertainLocks)
+  );
+
+  const lockDispute = (id: string) => {
+    persistentUncertainLocks.add(id);
+    setLockedDisputeIds(new Set(persistentUncertainLocks));
+  };
+
+  const unlockDispute = (id: string) => {
+    persistentUncertainLocks.delete(id);
+    setLockedDisputeIds(new Set(persistentUncertainLocks));
+  };
+
+  const isLockedForRefresh = Boolean(
+    currentDispute && lockedDisputeIds.has(currentDispute.id)
+  );
+
+  // Session generation tracker: increments on every dispute switch or drawer open/close
+  const sessionGenerationRef = useRef<number>(0);
+
+  // Sync internal dispute and session generation when prop updates
   useEffect(() => {
+    sessionGenerationRef.current += 1;
+
     setCurrentDispute(dispute);
     setPendingConfirmation(null);
     setNotes("");
     setFeedback(null);
+    setRefreshingAuthoritative(false);
   }, [dispute?.id, isOpen]);
 
   if (!isOpen || !currentDispute) return null;
 
   const handleSelectActionForConfirmation = (action: DisputeActionType) => {
     const config = ACTION_CONFIGS[action];
-    if (!config.isSupported) return;
+    if (!config.isSupported || isLockedForRefresh) return;
 
     setFeedback(null);
     setPendingConfirmation({
@@ -172,10 +238,49 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     setPendingConfirmation(null);
   };
 
-  const handleExecuteConfirmedAction = async () => {
-    if (!pendingConfirmation) return;
+  const handleManualStatusRefresh = async () => {
+    if (!currentDispute) return;
+    const targetDisputeId = currentDispute.id;
+    const operationGeneration = sessionGenerationRef.current;
+    setRefreshingAuthoritative(true);
 
-    // Safety guard: Ensure the staged dispute ID matches the currently inspected dispute
+    try {
+      const refreshed = await api.getDispute(targetDisputeId);
+
+      // Async session generation guard
+      if (sessionGenerationRef.current !== operationGeneration) {
+        onActionComplete();
+        return;
+      }
+
+      setCurrentDispute(refreshed);
+      unlockDispute(targetDisputeId);
+      setFeedback({
+        type: "success",
+        title: "Status Refreshed",
+        message: `Authoritative dispute detail confirmed: ${refreshed.status}.`,
+      });
+      onActionComplete();
+    } catch (err: unknown) {
+      if (sessionGenerationRef.current !== operationGeneration) return;
+
+      const msg = err instanceof Error ? err.message : "Refresh failed";
+      setFeedback({
+        type: "uncertain",
+        title: "Refresh Failed",
+        message: `Could not retrieve dispute status (${msg}). Financial actions remain locked until authoritative status is verified.`,
+      });
+    } finally {
+      if (sessionGenerationRef.current === operationGeneration) {
+        setRefreshingAuthoritative(false);
+      }
+    }
+  };
+
+  const handleExecuteConfirmedAction = async () => {
+    if (!pendingConfirmation || isLockedForRefresh || !currentDispute) return;
+
+    // Safety guard: Ensure the staged dispute ID matches the currently active dispute
     if (pendingConfirmation.disputeId !== currentDispute.id) {
       setFeedback({
         type: "error",
@@ -188,6 +293,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
 
     const actionToExecute = pendingConfirmation.action;
     const targetDisputeId = currentDispute.id;
+    const operationGeneration = sessionGenerationRef.current;
 
     setFeedback(null);
     setSubmittingAction(actionToExecute);
@@ -199,15 +305,26 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         notes || undefined
       );
 
+      // Async session generation guard
+      if (sessionGenerationRef.current !== operationGeneration) {
+        onActionComplete();
+        return;
+      }
+
       setPendingConfirmation(null);
       setNotes("");
 
       // Step 1: Fetch authoritative dispute detail from server after confirmed execution
-      let refreshedSuccessfully = false;
       try {
         const updatedDispute = await api.getDispute(targetDisputeId);
+
+        if (sessionGenerationRef.current !== operationGeneration) {
+          onActionComplete();
+          return;
+        }
+
         setCurrentDispute(updatedDispute);
-        refreshedSuccessfully = true;
+        unlockDispute(targetDisputeId);
 
         setFeedback({
           type: "success",
@@ -216,12 +333,16 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         });
       } catch (fetchErr) {
         console.warn("Failed to re-fetch dispute detail post-execution:", fetchErr);
-        // Do NOT fabricate replacement state if refresh fails
-        setFeedback({
-          type: "success",
-          title: "Execution Confirmed (Refresh Pending)",
-          message: `Action ${actionToExecute} dispatched successfully (Status: ${response.status || "CONFIRMED"}), but authoritative dispute detail could not be refreshed from the server. Please refresh dashboard manually.`,
-        });
+
+        if (sessionGenerationRef.current === operationGeneration) {
+          // If post-execution authoritative detail refresh fails, lock financial actions
+          lockDispute(targetDisputeId);
+          setFeedback({
+            type: "uncertain",
+            title: "Execution Confirmed (Verification Pending)",
+            message: `Action ${actionToExecute} dispatched successfully (Status: ${response.status || "CONFIRMED"}), but authoritative dispute detail could not be refreshed from the server. Financial actions are locked until status is confirmed. Use 'Refresh Status' below to verify.`,
+          });
+        }
       }
 
       // Notify parent to refresh list and statistics
@@ -229,44 +350,70 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
 
-      // Determine if error is a confirmed pre-execution rejection vs ambiguous outcome
-      // HTTP 400, 404, 422: Input validation / bad request / record missing -> confirmed rejection prior to execution
-      const isConfirmedRejection =
-        msg.includes("status 400") ||
-        msg.includes("status 404") ||
-        msg.includes("status 422");
+      // If session changed while awaiting execution, do not update UI but notify parent
+      if (sessionGenerationRef.current !== operationGeneration) {
+        onActionComplete();
+        return;
+      }
 
-      if (isConfirmedRejection) {
+      // Structured error classification:
+      // Only HTTP 422 (FastAPI Pydantic schema validation failure) is demonstrably rejected before execution.
+      // 400 (which may originate from PayPal or proxy), 404, 5xx, timeouts, and network failures are ambiguous.
+      const isConfirmedPreExecutionRejection =
+        err instanceof ApiError && err.status === 422;
+
+      if (isConfirmedPreExecutionRejection) {
         setFeedback({
           type: "error",
           title: "Execution Rejected by Server",
-          message: `${msg}. The action was rejected before execution and not applied.`,
+          message: `${msg}. The action request was rejected before execution and not applied.`,
         });
       } else {
-        // Network drop, timeout, HTTP 5xx, or gateway issue: Ambiguous outcome where execution may have occurred externally
+        // Ambiguous outcome (network drop, timeout, HTTP 5xx, or gateway issue)
+        setPendingConfirmation(null);
+        setNotes("");
+        lockDispute(targetDisputeId);
+
         setFeedback({
           type: "uncertain",
           title: "Execution Outcome Unconfirmed",
-          message: `Communication with server resulted in an unconfirmed state (${msg}). The request may or may not have been processed by PayPal. Please verify the dispute status or refresh before attempting another action. Do not retry blindly.`,
+          message: `Communication with server resulted in an unconfirmed state (${msg}). The request may or may not have been processed by PayPal. Financial actions are locked to prevent duplicate execution. Please verify status using 'Refresh Status' before attempting another action.`,
         });
       }
     } finally {
-      setSubmittingAction(null);
+      if (sessionGenerationRef.current === operationGeneration) {
+        setSubmittingAction(null);
+      }
     }
   };
 
   const handleRetriage = async () => {
+    if (!currentDispute) return;
     setFeedback(null);
     setSubmittingAction("TRIAGE");
     const targetDisputeId = currentDispute.id;
+    const operationGeneration = sessionGenerationRef.current;
 
     try {
       await api.triggerTriage(targetDisputeId);
 
+      // Async session generation guard
+      if (sessionGenerationRef.current !== operationGeneration) {
+        onActionComplete();
+        return;
+      }
+
       // Re-fetch authoritative dispute detail after triage
       try {
         const updated = await api.getDispute(targetDisputeId);
+
+        if (sessionGenerationRef.current !== operationGeneration) {
+          onActionComplete();
+          return;
+        }
+
         setCurrentDispute(updated);
+        unlockDispute(targetDisputeId);
 
         setFeedback({
           type: "success",
@@ -275,29 +422,66 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         });
       } catch (fetchErr) {
         console.warn("Failed to re-fetch dispute detail post-triage:", fetchErr);
-        setFeedback({
-          type: "success",
-          title: "Triage Triggered",
-          message: "AI Triage evaluation triggered successfully. Please refresh to load updated evidence.",
-        });
+        if (sessionGenerationRef.current === operationGeneration) {
+          setFeedback({
+            type: "success",
+            title: "Triage Triggered",
+            message: "AI Triage evaluation triggered successfully. Please refresh to load updated evidence.",
+          });
+        }
       }
 
       onActionComplete();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Triage failed";
-      setFeedback({
-        type: "error",
-        title: "Triage Evaluation Failed",
-        message: `${msg}. Evidence evaluation unchanged.`,
-      });
+
+      if (sessionGenerationRef.current !== operationGeneration) {
+        onActionComplete();
+        return;
+      }
+
+      // Structured error classification:
+      // Only HTTP 422 is demonstrably rejected before evaluation.
+      const isConfirmedPreExecutionRejection =
+        err instanceof ApiError && err.status === 422;
+
+      if (isConfirmedPreExecutionRejection) {
+        setFeedback({
+          type: "error",
+          title: "Triage Evaluation Rejected",
+          message: `${msg}. Triage request was rejected by the server prior to evaluation.`,
+        });
+      } else {
+        // Ambiguous failure: Triage may have initiated backend auto-execution
+        try {
+          const probed = await api.getDispute(targetDisputeId);
+          if (sessionGenerationRef.current === operationGeneration) {
+            setCurrentDispute(probed);
+          }
+        } catch (probeErr) {
+          console.warn("Failed to probe dispute state after ambiguous triage:", probeErr);
+        }
+
+        if (sessionGenerationRef.current === operationGeneration) {
+          setFeedback({
+            type: "uncertain",
+            title: "Triage Outcome Unconfirmed",
+            message: `Triage communication failed (${msg}). An autonomous PayPal action may or may not have been triggered. Please verify dispute status before retrying.`,
+          });
+        }
+      }
     } finally {
-      setSubmittingAction(null);
+      if (sessionGenerationRef.current === operationGeneration) {
+        setSubmittingAction(null);
+      }
     }
   };
 
-  const winProbPercent = currentDispute.ai_decision
-    ? Math.round(currentDispute.ai_decision.win_probability * 100)
-    : 0;
+  const winProb = currentDispute.ai_decision?.win_probability;
+  const winProbPercent =
+    typeof winProb === "number" && Number.isFinite(winProb) && winProb >= 0 && winProb <= 1
+      ? Math.round(winProb * 100)
+      : 0;
 
   // Authoritative terminal statuses from server (RESOLVED, CLOSED)
   const isCurrentDisputeTerminal =
@@ -336,6 +520,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
           </div>
           <button
             onClick={onClose}
+            type="button"
             className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 active:bg-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             aria-label="Close detail panel"
           >
@@ -355,7 +540,8 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
               </div>
               <button
                 onClick={() => setFeedback(null)}
-                className="text-red-400 hover:text-white p-0.5"
+                type="button"
+                className="text-red-400 hover:text-white active:scale-95 p-0.5 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400"
                 aria-label="Dismiss error"
               >
                 <X className="w-3.5 h-3.5" />
@@ -363,20 +549,43 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
             </div>
           )}
 
-          {feedback && feedback.type === "uncertain" && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-2 text-amber-300 text-xs">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <span className="font-semibold block">{feedback.title}</span>
-                <span>{feedback.message}</span>
+          {(isLockedForRefresh || (feedback && feedback.type === "uncertain")) && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col gap-2 text-amber-300 text-xs">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-semibold block">
+                    {feedback?.title || "Financial Execution Locked (Outcome Unverified)"}
+                  </span>
+                  <span>
+                    {feedback?.message ||
+                      "This dispute has an unconfirmed execution outcome. Actions are locked to prevent duplicate execution. Please verify authoritative status before attempting another action."}
+                  </span>
+                </div>
+                {feedback && !isLockedForRefresh && (
+                  <button
+                    onClick={() => setFeedback(null)}
+                    type="button"
+                    className="text-amber-400 hover:text-white active:scale-95 p-0.5 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                    aria-label="Dismiss warning"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              <button
-                onClick={() => setFeedback(null)}
-                className="text-amber-400 hover:text-white p-0.5"
-                aria-label="Dismiss warning"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              {isLockedForRefresh && (
+                <div className="pt-1 flex items-center justify-end">
+                  <button
+                    onClick={handleManualStatusRefresh}
+                    disabled={refreshingAuthoritative}
+                    type="button"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 active:bg-amber-500/40 text-amber-200 border border-amber-500/40 rounded-lg text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${refreshingAuthoritative ? "animate-spin" : ""}`} />
+                    <span>{refreshingAuthoritative ? "Verifying Status..." : "Refresh Status"}</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -389,7 +598,8 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
               </div>
               <button
                 onClick={() => setFeedback(null)}
-                className="text-emerald-400 hover:text-white p-0.5"
+                type="button"
+                className="text-emerald-400 hover:text-white active:scale-95 p-0.5 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400"
                 aria-label="Dismiss success notice"
               >
                 <X className="w-3.5 h-3.5" />
@@ -437,9 +647,16 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
               </div>
               <button
                 onClick={handleRetriage}
-                disabled={submittingAction !== null || isCurrentDisputeTerminal}
-                className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded border border-blue-500/30 transition-colors disabled:opacity-50"
-                title={isCurrentDisputeTerminal ? "Dispute is in a terminal state" : "Re-run AI evaluation on latest evidence"}
+                disabled={submittingAction !== null || isCurrentDisputeTerminal || isLockedForRefresh}
+                type="button"
+                className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 active:bg-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded border border-blue-500/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
+                title={
+                  isCurrentDisputeTerminal
+                    ? "Dispute is in a terminal state"
+                    : isLockedForRefresh
+                    ? "Actions locked until dispute status is confirmed"
+                    : "Re-run AI evaluation on latest evidence"
+                }
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${submittingAction === "TRIAGE" ? "animate-spin" : ""}`} />
                 <span>{submittingAction === "TRIAGE" ? "Evaluating..." : "Re-Evaluate"}</span>
@@ -672,7 +889,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                   Supervisor Override & Execution
                 </h3>
                 <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                  Select Action to Review Consequence
+                  {isLockedForRefresh ? "Actions Locked" : "Select Action to Review Consequence"}
                 </span>
               </div>
 
@@ -681,7 +898,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                 {(["CONTEST", "SETTLE", "REFUND"] as DisputeActionType[]).map((action) => {
                   const cfg = ACTION_CONFIGS[action];
                   const isSelected = activePendingAction === action;
-                  const isDisabled = submittingAction !== null || !cfg.isSupported;
+                  const isDisabled = submittingAction !== null || !cfg.isSupported || isLockedForRefresh;
 
                   return (
                     <button
@@ -690,13 +907,19 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                       disabled={isDisabled}
                       onClick={() => handleSelectActionForConfirmation(action)}
                       className={`p-3 rounded-lg border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                        !cfg.isSupported
+                        !cfg.isSupported || isLockedForRefresh
                           ? "bg-slate-950/40 border-slate-800/60 opacity-60 cursor-not-allowed text-slate-500"
                           : isSelected
-                          ? "bg-slate-900 border-blue-500 shadow-md ring-1 ring-blue-500"
-                          : "bg-slate-900/60 border-slate-700/80 hover:bg-slate-900 hover:border-slate-600 text-slate-300"
+                          ? "bg-slate-900 border-blue-500 shadow-md ring-1 ring-blue-500 active:bg-slate-950"
+                          : "bg-slate-900/60 border-slate-700/80 hover:bg-slate-900 hover:border-slate-600 active:bg-slate-950 text-slate-300"
                       }`}
-                      title={!cfg.isSupported ? cfg.unsupportedReason : `Select ${action}`}
+                      title={
+                        !cfg.isSupported
+                          ? cfg.unsupportedReason
+                          : isLockedForRefresh
+                          ? "Financial actions are locked until dispute status is confirmed"
+                          : `Select ${action}`
+                      }
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold flex items-center gap-1.5 text-white">
@@ -721,7 +944,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
               </div>
 
               {/* Consequence Disclosure & Confirmation Safeguard */}
-              {activePendingAction ? (
+              {activePendingAction && !isLockedForRefresh ? (
                 <div className="p-4 bg-slate-950/80 border border-blue-500/40 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
@@ -775,8 +998,8 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleExecuteConfirmedAction}
-                      disabled={submittingAction !== null}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-white font-bold text-xs rounded-lg transition-colors shadow-lg disabled:opacity-50 ${
+                      disabled={submittingAction !== null || isLockedForRefresh}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-white font-bold text-xs rounded-lg transition-colors shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 disabled:opacity-50 ${
                         ACTION_CONFIGS[activePendingAction].buttonClass
                       }`}
                     >
@@ -796,11 +1019,15 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                       type="button"
                       onClick={handleCancelConfirmation}
                       disabled={submittingAction !== null}
-                      className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-lg transition-colors border border-slate-700"
+                      className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 font-semibold text-xs rounded-lg transition-colors border border-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 disabled:opacity-50"
                     >
                       Cancel
                     </button>
                   </div>
+                </div>
+              ) : isLockedForRefresh ? (
+                <div className="text-[11px] text-amber-400/90 text-center py-2 bg-amber-500/10 rounded border border-amber-500/20">
+                  Financial execution is locked following an unconfirmed outcome. Use 'Refresh Status' above to verify state.
                 </div>
               ) : (
                 <div className="text-[11px] text-slate-500 text-center py-2 bg-slate-900/30 rounded border border-slate-800/60">
