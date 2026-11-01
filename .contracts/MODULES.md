@@ -77,12 +77,12 @@ PR descriptions, or examples. [Setup and acceptance runbook](../backend/docs/pay
 |---|---|---|---|---|---|---|
 | Constants | `frontend/src/lib/constants.ts` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | `APP_NAME`, `API_BASE_URL` |
 | API Client | `frontend/src/lib/api.ts` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | Typed fetch wrappers |
-| Layout | `frontend/src/app/layout.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Basic shell | Root layout with Tailwind |
-| Page | `frontend/src/app/page.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Static layout | Main Command Center |
+| Layout | `frontend/src/app/layout.tsx` | Frontend UX | **STABLE** | `feat/frontend-ux` | N/A | Executive header with PayPal Sandbox status pill |
+| Page | `frontend/src/app/page.tsx` | Frontend UX | **STABLE** | `feat/frontend-ux` | N/A | Command Center with seller filtering & live stream |
 | Dispute Studio | `frontend/src/components/DisputeStudio.tsx` | Frontend Grid | **STUB** | `feat/frontend-grid` | Static table | AG Studio integration |
 | Detail Drawer | `frontend/src/components/DisputeDetailDrawer.tsx` | Frontend Grid | **STUB** | `feat/frontend-grid` | Placeholder drawer | Evidence + AI reasoning |
-| Stats Overview | `frontend/src/components/StatsOverview.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Hardcoded numbers | Dashboard metrics |
-| Demo Control Bar | `frontend/src/components/DemoControlBar.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Console.log | Scenario injection buttons |
+| Stats Overview | `frontend/src/components/StatsOverview.tsx` | Frontend UX | **STABLE** | `feat/frontend-ux` | N/A | Executive KPI cards & EV math modal |
+| Demo Control Bar | `frontend/src/components/DemoControlBar.tsx` | Frontend UX | **STABLE** | `feat/frontend-ux` | N/A | 6-scenario simulator & custom test bench |
 
 ## Infrastructure
 

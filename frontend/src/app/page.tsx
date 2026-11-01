@@ -21,7 +21,7 @@ import {
   WifiOff,
 } from "lucide-react";
 
-// Graceful fallback data ensuring the dashboard is 100% operational
+// Static fallback data ensuring the dashboard is 100% operational with zero hydration mismatches
 const FALLBACK_DISPUTES: DisputeSummary[] = [
   {
     id: "disp-101",
@@ -49,8 +49,8 @@ const FALLBACK_DISPUTES: DisputeSummary[] = [
     },
     auto_executed: true,
     action_taken: "EVIDENCE_SUBMITTED",
-    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: "2026-10-31T14:30:00.000Z",
+    updated_at: "2026-10-31T14:30:00.000Z",
   },
   {
     id: "disp-102",
@@ -78,8 +78,8 @@ const FALLBACK_DISPUTES: DisputeSummary[] = [
     },
     auto_executed: false,
     action_taken: null,
-    created_at: new Date(Date.now() - 3600000 * 6).toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: "2026-10-31T11:15:00.000Z",
+    updated_at: "2026-10-31T11:15:00.000Z",
   },
   {
     id: "disp-103",
@@ -107,8 +107,8 @@ const FALLBACK_DISPUTES: DisputeSummary[] = [
     },
     auto_executed: true,
     action_taken: "REFUNDED",
-    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: "2026-10-31T09:00:00.000Z",
+    updated_at: "2026-10-31T09:00:00.000Z",
   },
 ];
 
@@ -141,6 +141,7 @@ const FALLBACK_SELLERS: SellerSummary[] = [
 ];
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
   const [disputes, setDisputes] = useState<DisputeSummary[]>(FALLBACK_DISPUTES);
   const [stats, setStats] = useState<StatsResponse | null>(FALLBACK_STATS);
   const [sellers, setSellers] = useState<SellerSummary[]>(FALLBACK_SELLERS);
@@ -150,7 +151,7 @@ export default function Home() {
 
   // Live polling state
   const [autoPolling, setAutoPolling] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
   const [toastMessage, setToastMessage] = useState<{
     type: "success" | "info" | "error";
     text: string;
@@ -159,6 +160,11 @@ export default function Home() {
   // Inspection Drawer State
   const [selectedDispute, setSelectedDispute] = useState<DisputeDetail | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+  }, []);
 
   // Load sellers
   useEffect(() => {
@@ -186,18 +192,16 @@ export default function Home() {
       setDisputes(disputesRes.disputes);
       setStats(statsRes);
       setIsOfflineMode(false);
-      setLastSyncTime(new Date());
-    } catch (err: unknown) {
-      console.warn("Backend offline or unreachable, running in resilient fallback mode:", err);
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    } catch {
       setIsOfflineMode(true);
-      // Filter fallback disputes by seller
       let filtered = FALLBACK_DISPUTES;
       if (selectedSeller !== "ALL") {
         filtered = FALLBACK_DISPUTES.filter((d) => d.seller_id === selectedSeller);
       }
       setDisputes(filtered);
       setStats(FALLBACK_STATS);
-      setLastSyncTime(new Date());
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     } finally {
       setLoading(false);
     }
@@ -257,12 +261,12 @@ export default function Home() {
           {
             action: "DISPUTE_INGESTED",
             details: "Ingested via PayPal Webhook v1",
-            timestamp: new Date(Date.now() - 3600000).toISOString(),
+            timestamp: "2026-10-31T14:30:00Z",
           },
           {
             action: "AI_EVALUATION_COMPLETED",
             details: "Win probability calculated at 94%",
-            timestamp: new Date().toISOString(),
+            timestamp: "2026-10-31T14:31:00Z",
           },
         ],
       };
@@ -284,7 +288,6 @@ export default function Home() {
         text: `AI Triage completed for dispute #${disputeId}`,
       });
     } catch {
-      // Offline simulated triage
       setDisputes((prev) =>
         prev.map((d) =>
           d.id === disputeId
@@ -322,39 +325,39 @@ export default function Home() {
       {/* Toast Notification */}
       {toastMessage && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-md text-xs font-semibold animate-slideUp ${
+          className={`fixed bottom-6 right-6 z-50 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border shadow-xl backdrop-blur-md text-xs font-semibold animate-slideUp ${
             toastMessage.type === "success"
-              ? "bg-emerald-950/90 text-emerald-200 border-emerald-500/40"
+              ? "bg-white text-emerald-800 border-emerald-200 shadow-emerald-500/10"
               : toastMessage.type === "error"
-              ? "bg-red-950/90 text-red-200 border-red-500/40"
-              : "bg-blue-950/90 text-blue-200 border-blue-500/40"
+              ? "bg-white text-rose-800 border-rose-200 shadow-rose-500/10"
+              : "bg-white text-blue-800 border-blue-200 shadow-blue-500/10"
           }`}
         >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
             <span>{toastMessage.text}</span>
           </div>
           <button
             onClick={() => setToastMessage(null)}
-            className="p-1 hover:text-white rounded"
+            className="p-1 hover:text-slate-900 text-slate-400 rounded"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* Offline Mode Banner */}
+      {/* Offline Mode Indicator */}
       {isOfflineMode && (
-        <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between text-xs text-blue-300">
+        <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl flex items-center justify-between text-xs text-blue-900 shadow-sm">
           <div className="flex items-center gap-2">
-            <WifiOff className="w-4 h-4 text-blue-400 shrink-0" />
+            <WifiOff className="w-4 h-4 text-[#0070ba] shrink-0" />
             <span>
-              <strong>Local Interactive Mode Active:</strong> Dashboard running with resilient mock fallbacks. Start the FastAPI backend on port 8000 for live PayPal Sandbox integration.
+              <strong>Local Interactive Mode Active:</strong> Dashboard running with resilient mock fallbacks. Connect FastAPI on port 8000 for live PayPal Sandbox integration.
             </span>
           </div>
           <button
             onClick={fetchData}
-            className="flex items-center gap-1 font-bold underline hover:text-white shrink-0 ml-2"
+            className="flex items-center gap-1 font-bold underline hover:text-blue-700 shrink-0 ml-2 text-[#0070ba]"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Reconnect</span>
@@ -363,24 +366,24 @@ export default function Home() {
       )}
 
       {/* Global Filter Bar: Marketplace Merchant Selector & Live Polling */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+      <div className="bg-white border border-slate-200/90 rounded-xl p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">
-            <Store className="w-4 h-4 text-blue-400" />
+          <div className="p-1.5 rounded-lg bg-blue-50 text-[#0070ba] border border-blue-100">
+            <Store className="w-4 h-4 text-[#0070ba]" />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-300">
+            <span className="text-xs font-semibold text-slate-600">
               Active Merchant View:
             </span>
             <select
               value={selectedSeller}
               onChange={(e) => setSelectedSeller(e.target.value)}
-              className="bg-slate-950 border border-slate-700 text-white font-semibold text-xs rounded-lg px-2.5 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="bg-white border border-slate-300 text-slate-800 font-semibold text-xs rounded-lg px-2.5 py-1.5 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba]"
             >
               <option value="ALL">All Marketplace Merchants (Aggregate)</option>
               {sellers.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} ({s.dispute_count} claims • ${(s.total_amount_at_risk || 0).toFixed(0)} exposure)
+                  {s.name} ({s.dispute_count} claims &bull; ${(s.total_amount_at_risk || 0).toFixed(0)} exposure)
                 </option>
               ))}
             </select>
@@ -393,19 +396,21 @@ export default function Home() {
             onClick={() => setAutoPolling(!autoPolling)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all ${
               autoPolling
-                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 shadow-sm"
-                : "bg-slate-800/80 hover:bg-slate-800 text-slate-400 border-slate-700/80"
+                ? "bg-emerald-50 text-emerald-800 border-emerald-200 shadow-sm"
+                : "bg-white hover:bg-slate-50 text-slate-600 border-slate-200 shadow-sm"
             }`}
             title="Toggle automatic 8s webhook polling"
           >
-            <Radio className={`w-3.5 h-3.5 ${autoPolling ? "animate-pulse text-emerald-400" : ""}`} />
+            <Radio className={`w-3.5 h-3.5 ${autoPolling ? "animate-pulse text-emerald-600" : ""}`} />
             <span className="font-semibold">
               {autoPolling ? "Live Polling On (8s)" : "Auto-Poll Off"}
             </span>
           </button>
-          <span className="text-[11px] text-slate-500 hidden md:inline">
-            Synced {lastSyncTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-          </span>
+          {mounted && lastSyncTime && (
+            <span className="text-[11px] text-slate-500 hidden md:inline font-mono" suppressHydrationWarning>
+              Synced {lastSyncTime}
+            </span>
+          )}
         </div>
       </div>
 
