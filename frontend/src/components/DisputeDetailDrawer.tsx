@@ -203,6 +203,10 @@ const incrementDisputeOpVersion = (disputeId: string): number => {
 // Track monotonically increasing GET request sequence per dispute
 const persistentDisputeGetSeq = new Map<string, number>();
 
+const getDisputeGetSeq = (disputeId: string): number => {
+  return persistentDisputeGetSeq.get(disputeId) || 0;
+};
+
 const nextDisputeGetSeq = (disputeId: string): number => {
   const next = (persistentDisputeGetSeq.get(disputeId) || 0) + 1;
   persistentDisputeGetSeq.set(disputeId, next);
@@ -220,13 +224,127 @@ const isSnapshotEligible = (
   return false;
 };
 
+const isTerminalStatus = (status?: string): boolean => {
+  if (!status) return false;
+  const s = status.toUpperCase();
+  return s === "RESOLVED" || s === "CLOSED";
+};
+
+const getDisputeFreshnessScore = (d: DisputeDetail): {
+  isTerminal: boolean;
+  statusRank: number;
+  hasActionTaken: boolean;
+  lastAuditTime: number;
+  auditCount: number;
+  updatedAtTime: number;
+} => {
+  const statusUpper = (d.status || "").toUpperCase();
+  const terminal = isTerminalStatus(statusUpper);
+  let statusRank = 1;
+  if (terminal) {
+    statusRank = 3;
+  } else if (
+    statusUpper === "UNDER_REVIEW" ||
+    statusUpper === "WAITING_FOR_BUYER_RESPONSE" ||
+    statusUpper === "WAITING_FOR_SELLER_RESPONSE"
+  ) {
+    statusRank = 2;
+  } else if (statusUpper === "OPEN") {
+    statusRank = 1;
+  } else {
+    statusRank = 0;
+  }
+
+  const hasAction = Boolean(d.auto_executed || d.action_taken);
+
+  let lastAuditTime = 0;
+  if (Array.isArray(d.audit_log) && d.audit_log.length > 0) {
+    const lastItem = d.audit_log[d.audit_log.length - 1];
+    if (lastItem && lastItem.timestamp) {
+      const parsed = Date.parse(lastItem.timestamp);
+      if (!Number.isNaN(parsed)) {
+        lastAuditTime = parsed;
+      }
+    }
+  }
+
+  let updatedAtTime = 0;
+  if (d.updated_at) {
+    const parsed = Date.parse(d.updated_at);
+    if (!Number.isNaN(parsed)) {
+      updatedAtTime = parsed;
+    }
+  }
+
+  return {
+    isTerminal: terminal,
+    statusRank,
+    hasActionTaken: hasAction,
+    lastAuditTime,
+    auditCount: Array.isArray(d.audit_log) ? d.audit_log.length : 0,
+    updatedAtTime,
+  };
+};
+
+const selectAuthoritativeDispute = (
+  cached: DisputeDetail,
+  incoming: DisputeDetail
+): DisputeDetail => {
+  // If either has terminal status, terminal ALWAYS takes precedence over non-terminal
+  const cachedTerminal = isTerminalStatus(cached.status);
+  const incomingTerminal = isTerminalStatus(incoming.status);
+
+  if (incomingTerminal && !cachedTerminal) {
+    return incoming;
+  }
+  if (cachedTerminal && !incomingTerminal) {
+    return cached;
+  }
+
+  // If both are terminal or neither is terminal, compare progression signals:
+  const scoreCached = getDisputeFreshnessScore(cached);
+  const scoreIncoming = getDisputeFreshnessScore(incoming);
+
+  // 1. Compare latest audit log event timestamp (timestamp of actual event)
+  if (scoreIncoming.lastAuditTime !== scoreCached.lastAuditTime) {
+    return scoreIncoming.lastAuditTime > scoreCached.lastAuditTime ? incoming : cached;
+  }
+
+  // 2. Compare audit log count (more events appended)
+  if (scoreIncoming.auditCount !== scoreCached.auditCount) {
+    return scoreIncoming.auditCount > scoreCached.auditCount ? incoming : cached;
+  }
+
+  // 3. Compare updated_at timestamp (supporting signal)
+  if (scoreIncoming.updatedAtTime !== scoreCached.updatedAtTime) {
+    return scoreIncoming.updatedAtTime > scoreCached.updatedAtTime ? incoming : cached;
+  }
+
+  // 4. Compare lifecycle progression (e.g. UNDER_REVIEW > OPEN)
+  if (scoreIncoming.statusRank !== scoreCached.statusRank) {
+    return scoreIncoming.statusRank > scoreCached.statusRank ? incoming : cached;
+  }
+
+  // 5. Action taken (action executed > no action)
+  if (scoreIncoming.hasActionTaken !== scoreCached.hasActionTaken) {
+    return scoreIncoming.hasActionTaken ? incoming : cached;
+  }
+
+  // Fail-safe tie-breaker: prefer incoming prop from recent parent fetch
+  return incoming;
+};
+
 export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   dispute,
   isOpen,
   onClose,
   onActionComplete,
 }) => {
-  const [currentDispute, setCurrentDispute] = useState<DisputeDetail | null>(dispute);
+  const [currentDispute, setCurrentDispute] = useState<DisputeDetail | null>(() => {
+    if (!dispute) return null;
+    const cached = persistentDisputeCache.get(dispute.id);
+    return cached ? selectAuthoritativeDispute(cached.detail, dispute) : dispute;
+  });
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingActionState | null>(null);
   const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState<ExecutionFeedback | null>(null);
@@ -273,21 +391,65 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
 
   // Session generation tracker: increments on every dispute switch or drawer open/close
   const sessionGenerationRef = useRef<number>(0);
+  const prevDisputeIdRef = useRef<string | undefined>(undefined);
+  const prevIsOpenRef = useRef<boolean>(false);
 
-  // Sync internal dispute and session generation when prop updates
+  // Sync internal dispute and session generation when prop updates, reconciling cache with incoming prop
   useEffect(() => {
-    sessionGenerationRef.current += 1;
+    if (!isOpen || !dispute) {
+      const wasSessionActive = prevIsOpenRef.current && prevDisputeIdRef.current !== undefined;
+      prevIsOpenRef.current = isOpen;
+      prevDisputeIdRef.current = dispute?.id;
 
-    // Use cached authoritative dispute if available and matching
-    const cached = dispute?.id ? persistentDisputeCache.get(dispute.id) : undefined;
-    const initialDispute = cached ? cached.detail : dispute;
+      if (wasSessionActive) {
+        sessionGenerationRef.current += 1;
+      }
 
-    setCurrentDispute(initialDispute);
-    setPendingConfirmation(null);
-    setNotes("");
-    setFeedback(null);
-    setRefreshingAuthoritative(false);
-  }, [dispute?.id, isOpen]);
+      if (!isOpen) {
+        setPendingConfirmation(null);
+        setNotes("");
+        setFeedback(null);
+        setRefreshingAuthoritative(false);
+      }
+      return;
+    }
+
+    const isSessionChange =
+      isOpen !== prevIsOpenRef.current || dispute.id !== prevDisputeIdRef.current;
+    prevIsOpenRef.current = isOpen;
+    prevDisputeIdRef.current = dispute.id;
+
+    const cachedEntry = persistentDisputeCache.get(dispute.id);
+    const authoritative = cachedEntry
+      ? selectAuthoritativeDispute(cachedEntry.detail, dispute)
+      : dispute;
+
+    // Update persistentDisputeCache if authoritative is newer or different from cached
+    if (!cachedEntry || authoritative !== cachedEntry.detail) {
+      persistentDisputeCache.set(dispute.id, {
+        detail: authoritative,
+        version: cachedEntry?.version ?? getDisputeOpVersion(dispute.id),
+        getSeq: cachedEntry?.getSeq ?? getDisputeGetSeq(dispute.id),
+      });
+    }
+
+    if (isSessionChange) {
+      sessionGenerationRef.current += 1;
+      setCurrentDispute(authoritative);
+      setPendingConfirmation(null);
+      setNotes("");
+      setFeedback(null);
+      setRefreshingAuthoritative(false);
+    } else {
+      // Same-ID update while drawer remains open
+      setCurrentDispute(authoritative);
+      // If the dispute reached terminal status or review, clear any pending confirmation
+      if (isTerminalStatus(authoritative.status) || authoritative.status === "UNDER_REVIEW") {
+        setPendingConfirmation(null);
+        setNotes("");
+      }
+    }
+  }, [dispute, isOpen]);
 
   if (!isOpen || !currentDispute) return null;
 
@@ -653,8 +815,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
       : 0;
 
   // Authoritative terminal statuses from server (RESOLVED, CLOSED)
-  const isCurrentDisputeTerminal =
-    currentDispute.status === "RESOLVED" || currentDispute.status === "CLOSED";
+  const isCurrentDisputeTerminal = isTerminalStatus(currentDispute.status);
 
   // Active pending confirmation for current dispute
   const activePendingAction =
