@@ -2,6 +2,12 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-11-07] Reconcile contracts, synchronize AG Studio grid, and prepare Milestone releases
+- Reconcile `MODULES.md` with PR #6 (`feat/ag-studio-integration`) merge: elevate `DisputeStudio.tsx`, `DisputeDetailDrawer.tsx`, and `DisputeAnalyticsStudio.tsx` to STABLE.
+- Reconcile frontend dashboard components (`StatsOverview.tsx`, `DemoControlBar.tsx`, `page.tsx`, `layout.tsx`) from STUB to STABLE.
+- Update backend module statuses (`routes_disputes.py`, `agent.py`, `rag_store.py`) to reflect operational in-memory and heuristic implementations.
+- Prepare milestone release progression: Checkpoint 1 (`v0.1.0-scaffold`), Checkpoint 2 (`v0.2.0-engine`), and Checkpoint 3 (`v0.3.0-matrix`).
+
 ## [2026-10-31] Integrate dev sandbox setup into PayPal feature branch
 - User relayed the Tech Lead request to pull dev and resolve integration conflicts.
 - Combine upstream account fields, schema/seed updates, and DEC-012 through DEC-014 with existing PayPal implementation and refund safeguards.
