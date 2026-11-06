@@ -124,6 +124,48 @@ export interface SellerListResponse {
   sellers: SellerSummary[];
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly responseBody: string;
+
+  constructor(status: number, statusText: string, responseBody: string) {
+    let cleanMessage = responseBody;
+    try {
+      const parsed = JSON.parse(responseBody);
+      if (typeof parsed === "object" && parsed !== null) {
+        if (typeof parsed.detail === "string") {
+          cleanMessage = parsed.detail;
+        } else if (Array.isArray(parsed.detail) && parsed.detail.length > 0 && parsed.detail[0]?.msg) {
+          cleanMessage = parsed.detail
+            .map((d: { msg?: string; loc?: (string | number)[] }) =>
+              d.loc ? `${d.loc.join(".")}: ${d.msg}` : d.msg
+            )
+            .join("; ");
+        } else if (typeof parsed.message === "string") {
+          cleanMessage = parsed.message;
+        }
+      }
+    } catch {
+      // responseBody is plain text
+    }
+
+    const message = cleanMessage
+      ? `API request failed with status ${status}: ${cleanMessage}`
+      : `API request failed with status ${status}: ${statusText}`;
+
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.responseBody = responseBody;
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, ApiError);
+    }
+  }
+}
+
 class ApiService {
   private baseUrl: string;
 
@@ -142,9 +184,7 @@ class ApiService {
       const response = await fetch(url, { ...options, headers });
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `API request failed with status ${response.status}: ${errorText}`
-        );
+        throw new ApiError(response.status, response.statusText, errorText);
       }
       return (await response.json()) as T;
     } catch (err: unknown) {
