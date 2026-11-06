@@ -27,6 +27,7 @@ import {
 } from "ag-grid-community";
 import { AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import { DisputeSummary, AIDecision } from "@/lib/api";
+import type { AgReportState } from "ag-studio";
 import { DisputeAnalyticsStudio } from "./DisputeAnalyticsStudio";
 
 // Register AG Grid Community modules
@@ -111,6 +112,7 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [triagingId, setTriagingId] = useState<string | null>(null);
   const [displayedCount, setDisplayedCount] = useState<number>(disputes.length);
+  const [studioReportState, setStudioReportState] = useState<AgReportState | undefined>(undefined);
 
   const statusOptions = [
     { id: "ALL", label: "All Disputes" },
@@ -631,7 +633,12 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
         </>
       ) : (
         <div className="p-4 sm:p-5">
-          <DisputeAnalyticsStudio disputes={disputes} loading={loading} />
+          <DisputeAnalyticsStudio
+            disputes={disputes}
+            loading={loading}
+            savedState={studioReportState}
+            onStateChange={setStudioReportState}
+          />
         </div>
       )}
     </div>

@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { AgStudio } from "ag-studio-react";
-import { studioTheme } from "ag-studio";
+import { studioTheme, type AgReportState } from "ag-studio";
 import { colorSchemeDarkBlue } from "ag-grid-community";
 import { DisputeSummary } from "@/lib/api";
 
@@ -21,11 +21,15 @@ const sentinStudioTheme = studioTheme.withPart(colorSchemeDarkBlue);
 interface DisputeAnalyticsStudioProps {
   disputes: DisputeSummary[];
   loading: boolean;
+  savedState?: AgReportState;
+  onStateChange?: (state: AgReportState) => void;
 }
 
 export const DisputeAnalyticsStudio: React.FC<DisputeAnalyticsStudioProps> = ({
   disputes,
   loading,
+  savedState,
+  onStateChange,
 }) => {
   const [studioMode, setStudioMode] = useState<"view" | "edit">("view");
   const [isMounted, setIsMounted] = useState(false);
@@ -91,14 +95,14 @@ export const DisputeAnalyticsStudio: React.FC<DisputeAnalyticsStudioProps> = ({
   const metrics = useMemo(() => {
     const count = disputes.length;
 
-    // Group exposure totals by currency safely
+    // Group exposure totals by currency safely, distinguishing missing from invalid codes
     const exposureByCurrency: Record<string, number> = {};
     for (const d of disputes) {
-      const curr =
-        typeof d.currency === "string" && d.currency.trim()
-          ? d.currency.trim().toUpperCase()
-          : "UNKNOWN";
-      const amt = typeof d.amount === "number" && Number.isFinite(d.amount) ? d.amount : 0;
+      const hasCurrency =
+        typeof d.currency === "string" && d.currency.trim().length > 0;
+      const curr = hasCurrency ? d.currency.trim().toUpperCase() : "[MISSING]";
+      const amt =
+        typeof d.amount === "number" && Number.isFinite(d.amount) ? d.amount : 0;
       exposureByCurrency[curr] = (exposureByCurrency[curr] || 0) + amt;
     }
 
@@ -128,24 +132,30 @@ export const DisputeAnalyticsStudio: React.FC<DisputeAnalyticsStudioProps> = ({
     };
   }, [disputes]);
 
-  // Exposure formatted strings list
+  // Exposure formatted strings list with preserved currency code fallback
   const exposureDisplay = useMemo(() => {
     const entries = Object.entries(metrics.exposureByCurrency);
     if (entries.length === 0) return [{ label: "$0.00", currency: "USD" }];
 
     return entries.map(([curr, amt]) => {
       let formatted: string;
-      try {
-        if (curr !== "UNKNOWN") {
+      const formattedAmt = amt.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+
+      if (curr === "[MISSING]") {
+        formatted = `${formattedAmt} (no currency)`;
+      } else {
+        try {
           formatted = new Intl.NumberFormat("en-US", {
             style: "currency",
             currency: curr,
           }).format(amt);
-        } else {
-          formatted = `${amt.toFixed(2)}`;
+        } catch {
+          // Fallback preserves the currency code for unsupported currencies (e.g. "125.00 USDT")
+          formatted = `${formattedAmt} ${curr}`;
         }
-      } catch {
-        formatted = `${amt.toFixed(2)}`;
       }
       return { label: formatted, currency: curr };
     });
@@ -236,9 +246,6 @@ export const DisputeAnalyticsStudio: React.FC<DisputeAnalyticsStudioProps> = ({
             {exposureDisplay.map((exp, idx) => (
               <div key={idx} className="text-lg font-extrabold text-white flex items-baseline gap-1">
                 <span>{exp.label}</span>
-                {exp.currency === "UNKNOWN" && (
-                  <span className="text-[10px] text-slate-400 font-normal">({exp.currency})</span>
-                )}
               </div>
             ))}
           </div>
@@ -296,6 +303,17 @@ export const DisputeAnalyticsStudio: React.FC<DisputeAnalyticsStudioProps> = ({
             data={studioData}
             mode={studioMode}
             theme={sentinStudioTheme}
+            initialState={savedState}
+            onStateUpdated={(event) => {
+              if (event?.state && onStateChange) {
+                onStateChange(event.state);
+              }
+            }}
+            onStudioPreDestroyed={(event) => {
+              if (event?.state && onStateChange) {
+                onStateChange(event.state);
+              }
+            }}
             style={{ width: "100%", height: "100%" }}
           />
         )}

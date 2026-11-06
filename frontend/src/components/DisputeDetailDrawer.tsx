@@ -175,6 +175,9 @@ const CopyButton: React.FC<{ value?: string | null; label: string }> = ({ value,
 // Track uncertain dispute IDs across transient drawer open/close and component mount lifecycles
 const persistentUncertainLocks = new Set<string>();
 
+// Track in-flight operations per dispute across transient drawer open/close and switching
+const persistentInFlightActions = new Map<string, string>();
+
 export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   dispute,
   isOpen,
@@ -182,7 +185,6 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   onActionComplete,
 }) => {
   const [currentDispute, setCurrentDispute] = useState<DisputeDetail | null>(dispute);
-  const [submittingAction, setSubmittingAction] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingActionState | null>(null);
   const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState<ExecutionFeedback | null>(null);
@@ -207,6 +209,26 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     currentDispute && lockedDisputeIds.has(currentDispute.id)
   );
 
+  // Per-dispute in-flight action tracking
+  const [inFlightActions, setInFlightActions] = useState<Map<string, string>>(
+    () => new Map(persistentInFlightActions)
+  );
+
+  const markInFlight = (disputeId: string, action: string) => {
+    persistentInFlightActions.set(disputeId, action);
+    setInFlightActions(new Map(persistentInFlightActions));
+  };
+
+  const clearInFlight = (disputeId: string) => {
+    persistentInFlightActions.delete(disputeId);
+    setInFlightActions(new Map(persistentInFlightActions));
+  };
+
+  const currentInFlightAction = currentDispute
+    ? inFlightActions.get(currentDispute.id) || null
+    : null;
+  const isCurrentDisputeInFlight = currentInFlightAction !== null;
+
   // Session generation tracker: increments on every dispute switch or drawer open/close
   const sessionGenerationRef = useRef<number>(0);
 
@@ -225,7 +247,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
 
   const handleSelectActionForConfirmation = (action: DisputeActionType) => {
     const config = ACTION_CONFIGS[action];
-    if (!config.isSupported || isLockedForRefresh) return;
+    if (!config.isSupported || isLockedForRefresh || isCurrentDisputeInFlight) return;
 
     setFeedback(null);
     setPendingConfirmation({
@@ -235,11 +257,12 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   };
 
   const handleCancelConfirmation = () => {
+    if (isCurrentDisputeInFlight) return;
     setPendingConfirmation(null);
   };
 
   const handleManualStatusRefresh = async () => {
-    if (!currentDispute) return;
+    if (!currentDispute || refreshingAuthoritative || isCurrentDisputeInFlight) return;
     const targetDisputeId = currentDispute.id;
     const operationGeneration = sessionGenerationRef.current;
     setRefreshingAuthoritative(true);
@@ -278,7 +301,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   };
 
   const handleExecuteConfirmedAction = async () => {
-    if (!pendingConfirmation || isLockedForRefresh || !currentDispute) return;
+    if (!pendingConfirmation || isLockedForRefresh || !currentDispute || isCurrentDisputeInFlight) return;
 
     // Safety guard: Ensure the staged dispute ID matches the currently active dispute
     if (pendingConfirmation.disputeId !== currentDispute.id) {
@@ -296,7 +319,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     const operationGeneration = sessionGenerationRef.current;
 
     setFeedback(null);
-    setSubmittingAction(actionToExecute);
+    markInFlight(targetDisputeId, actionToExecute);
 
     try {
       const response = await api.executeAction(
@@ -305,38 +328,34 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         notes || undefined
       );
 
-      // Async session generation guard
-      if (sessionGenerationRef.current !== operationGeneration) {
-        onActionComplete();
-        return;
+      // Async session generation guard for UI cleanup
+      if (sessionGenerationRef.current === operationGeneration) {
+        setPendingConfirmation(null);
+        setNotes("");
       }
-
-      setPendingConfirmation(null);
-      setNotes("");
 
       // Step 1: Fetch authoritative dispute detail from server after confirmed execution
       try {
         const updatedDispute = await api.getDispute(targetDisputeId);
 
-        if (sessionGenerationRef.current !== operationGeneration) {
-          onActionComplete();
-          return;
+        // Only unlock if still in the matching session to prevent stale requests from unlocking newer sessions
+        if (sessionGenerationRef.current === operationGeneration) {
+          setCurrentDispute(updatedDispute);
+          unlockDispute(targetDisputeId);
+
+          setFeedback({
+            type: "success",
+            title: "Execution Confirmed",
+            message: `Action ${actionToExecute} dispatched successfully (Status: ${response.status || "CONFIRMED"}). Authoritative dispute state refreshed: ${updatedDispute.status}.`,
+          });
         }
-
-        setCurrentDispute(updatedDispute);
-        unlockDispute(targetDisputeId);
-
-        setFeedback({
-          type: "success",
-          title: "Execution Confirmed",
-          message: `Action ${actionToExecute} dispatched successfully (Status: ${response.status || "CONFIRMED"}). Authoritative dispute state refreshed: ${updatedDispute.status}.`,
-        });
       } catch (fetchErr) {
         console.warn("Failed to re-fetch dispute detail post-execution:", fetchErr);
 
+        // Problem 3: Record uncertain outcome lock against targetDisputeId independently of session generation!
+        lockDispute(targetDisputeId);
+
         if (sessionGenerationRef.current === operationGeneration) {
-          // If post-execution authoritative detail refresh fails, lock financial actions
-          lockDispute(targetDisputeId);
           setFeedback({
             type: "uncertain",
             title: "Execution Confirmed (Verification Pending)",
@@ -350,83 +369,81 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
 
-      // If session changed while awaiting execution, do not update UI but notify parent
-      if (sessionGenerationRef.current !== operationGeneration) {
-        onActionComplete();
-        return;
-      }
-
       // Structured error classification:
       // Only HTTP 422 (FastAPI Pydantic schema validation failure) is demonstrably rejected before execution.
       // 400 (which may originate from PayPal or proxy), 404, 5xx, timeouts, and network failures are ambiguous.
       const isConfirmedPreExecutionRejection =
         err instanceof ApiError && err.status === 422;
 
-      if (isConfirmedPreExecutionRejection) {
-        setFeedback({
-          type: "error",
-          title: "Execution Rejected by Server",
-          message: `${msg}. The action request was rejected before execution and not applied.`,
-        });
-      } else {
-        // Ambiguous outcome (network drop, timeout, HTTP 5xx, or gateway issue)
-        setPendingConfirmation(null);
-        setNotes("");
+      if (!isConfirmedPreExecutionRejection) {
+        // Problem 3: Record uncertain outcome lock against targetDisputeId independently of session generation!
         lockDispute(targetDisputeId);
+      }
 
-        setFeedback({
-          type: "uncertain",
-          title: "Execution Outcome Unconfirmed",
-          message: `Communication with server resulted in an unconfirmed state (${msg}). The request may or may not have been processed by PayPal. Financial actions are locked to prevent duplicate execution. Please verify status using 'Refresh Status' before attempting another action.`,
-        });
+      onActionComplete();
+
+      // Session generation guards only UI-specific state updates of the active drawer session
+      if (sessionGenerationRef.current === operationGeneration) {
+        if (isConfirmedPreExecutionRejection) {
+          setFeedback({
+            type: "error",
+            title: "Execution Rejected by Server",
+            message: `${msg}. The action request was rejected before execution and not applied.`,
+          });
+        } else {
+          setPendingConfirmation(null);
+          setNotes("");
+          setFeedback({
+            type: "uncertain",
+            title: "Execution Outcome Unconfirmed",
+            message: `Communication with server resulted in an unconfirmed state (${msg}). The request may or may not have been processed by PayPal. Financial actions are locked to prevent duplicate execution. Please verify status using 'Refresh Status' before attempting another action.`,
+          });
+        }
       }
     } finally {
-      if (sessionGenerationRef.current === operationGeneration) {
-        setSubmittingAction(null);
-      }
+      // Problem 4: Always clear targetDisputeId's in-flight marker regardless of session generation
+      clearInFlight(targetDisputeId);
     }
   };
 
   const handleRetriage = async () => {
-    if (!currentDispute) return;
+    if (!currentDispute || isCurrentDisputeInFlight || isLockedForRefresh || isCurrentDisputeTerminal) return;
     setFeedback(null);
-    setSubmittingAction("TRIAGE");
     const targetDisputeId = currentDispute.id;
     const operationGeneration = sessionGenerationRef.current;
 
+    markInFlight(targetDisputeId, "TRIAGE");
+
     try {
       await api.triggerTriage(targetDisputeId);
-
-      // Async session generation guard
-      if (sessionGenerationRef.current !== operationGeneration) {
-        onActionComplete();
-        return;
-      }
 
       // Re-fetch authoritative dispute detail after triage
       try {
         const updated = await api.getDispute(targetDisputeId);
 
-        if (sessionGenerationRef.current !== operationGeneration) {
-          onActionComplete();
-          return;
-        }
-
-        setCurrentDispute(updated);
-        unlockDispute(targetDisputeId);
-
-        setFeedback({
-          type: "success",
-          title: "Triage Completed",
-          message: `AI Triage evaluation successfully re-calculated via Gemini 2.0 Flash. Status: ${updated.status}.`,
-        });
-      } catch (fetchErr) {
-        console.warn("Failed to re-fetch dispute detail post-triage:", fetchErr);
         if (sessionGenerationRef.current === operationGeneration) {
+          setCurrentDispute(updated);
+          unlockDispute(targetDisputeId);
+
           setFeedback({
             type: "success",
-            title: "Triage Triggered",
-            message: "AI Triage evaluation triggered successfully. Please refresh to load updated evidence.",
+            title: "Triage Completed",
+            message: `AI Triage evaluation successfully re-calculated via Gemini 2.0 Flash. Status: ${updated.status}.`,
+          });
+        }
+      } catch (fetchErr) {
+        console.warn("Failed to re-fetch dispute detail post-triage:", fetchErr);
+
+        // Problem 5 (Case A): Triage succeeded, but authoritative GET failed.
+        // Lock financial actions independently of session generation because backend triage
+        // may have autonomously executed a PayPal action.
+        lockDispute(targetDisputeId);
+
+        if (sessionGenerationRef.current === operationGeneration) {
+          setFeedback({
+            type: "uncertain",
+            title: "Triage Triggered (Verification Pending)",
+            message: "AI Triage evaluation triggered, but authoritative dispute state could not be refreshed from the server. An autonomous PayPal action may have executed. Financial actions are locked until status is confirmed. Use 'Refresh Status' below to verify.",
           });
         }
       }
@@ -435,45 +452,54 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Triage failed";
 
-      if (sessionGenerationRef.current !== operationGeneration) {
-        onActionComplete();
-        return;
-      }
-
-      // Structured error classification:
-      // Only HTTP 422 is demonstrably rejected before evaluation.
       const isConfirmedPreExecutionRejection =
         err instanceof ApiError && err.status === 422;
 
-      if (isConfirmedPreExecutionRejection) {
-        setFeedback({
-          type: "error",
-          title: "Triage Evaluation Rejected",
-          message: `${msg}. Triage request was rejected by the server prior to evaluation.`,
-        });
-      } else {
-        // Ambiguous failure: Triage may have initiated backend auto-execution
+      if (!isConfirmedPreExecutionRejection) {
+        // Triage failed ambiguously. Attempt to probe dispute state.
+        let probeSucceeded = false;
+        let probedDispute: DisputeDetail | null = null;
+
         try {
-          const probed = await api.getDispute(targetDisputeId);
-          if (sessionGenerationRef.current === operationGeneration) {
-            setCurrentDispute(probed);
-          }
+          probedDispute = await api.getDispute(targetDisputeId);
+          probeSucceeded = true;
         } catch (probeErr) {
           console.warn("Failed to probe dispute state after ambiguous triage:", probeErr);
         }
 
+        if (!probeSucceeded) {
+          // Problem 5 (Case B): Triage failed ambiguously AND follow-up probe also failed!
+          // Lock financial actions independently of session generation.
+          lockDispute(targetDisputeId);
+        }
+
+        onActionComplete();
+
         if (sessionGenerationRef.current === operationGeneration) {
+          if (probeSucceeded && probedDispute) {
+            setCurrentDispute(probedDispute);
+          }
           setFeedback({
             type: "uncertain",
             title: "Triage Outcome Unconfirmed",
             message: `Triage communication failed (${msg}). An autonomous PayPal action may or may not have been triggered. Please verify dispute status before retrying.`,
           });
         }
+        return;
+      }
+
+      onActionComplete();
+
+      if (sessionGenerationRef.current === operationGeneration) {
+        setFeedback({
+          type: "error",
+          title: "Triage Evaluation Rejected",
+          message: `${msg}. Triage request was rejected by the server prior to evaluation.`,
+        });
       }
     } finally {
-      if (sessionGenerationRef.current === operationGeneration) {
-        setSubmittingAction(null);
-      }
+      // Problem 4: Always clear in-flight marker regardless of session generation
+      clearInFlight(targetDisputeId);
     }
   };
 
@@ -647,7 +673,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
               </div>
               <button
                 onClick={handleRetriage}
-                disabled={submittingAction !== null || isCurrentDisputeTerminal || isLockedForRefresh}
+                disabled={isCurrentDisputeInFlight || isCurrentDisputeTerminal || isLockedForRefresh}
                 type="button"
                 className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 active:bg-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded border border-blue-500/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
                 title={
@@ -655,11 +681,13 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                     ? "Dispute is in a terminal state"
                     : isLockedForRefresh
                     ? "Actions locked until dispute status is confirmed"
+                    : isCurrentDisputeInFlight
+                    ? "An operation is currently in flight for this dispute"
                     : "Re-run AI evaluation on latest evidence"
                 }
               >
-                <RotateCcw className={`w-3.5 h-3.5 ${submittingAction === "TRIAGE" ? "animate-spin" : ""}`} />
-                <span>{submittingAction === "TRIAGE" ? "Evaluating..." : "Re-Evaluate"}</span>
+                <RotateCcw className={`w-3.5 h-3.5 ${currentInFlightAction === "TRIAGE" ? "animate-spin" : ""}`} />
+                <span>{currentInFlightAction === "TRIAGE" ? "Evaluating..." : "Re-Evaluate"}</span>
               </button>
             </div>
 
@@ -898,7 +926,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                 {(["CONTEST", "SETTLE", "REFUND"] as DisputeActionType[]).map((action) => {
                   const cfg = ACTION_CONFIGS[action];
                   const isSelected = activePendingAction === action;
-                  const isDisabled = submittingAction !== null || !cfg.isSupported || isLockedForRefresh;
+                  const isDisabled = isCurrentDisputeInFlight || !cfg.isSupported || isLockedForRefresh;
 
                   return (
                     <button
@@ -998,12 +1026,12 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleExecuteConfirmedAction}
-                      disabled={submittingAction !== null || isLockedForRefresh}
+                      disabled={isCurrentDisputeInFlight || isLockedForRefresh}
                       className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-4 text-white font-bold text-xs rounded-lg transition-colors shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 disabled:opacity-50 ${
                         ACTION_CONFIGS[activePendingAction].buttonClass
                       }`}
                     >
-                      {submittingAction === activePendingAction ? (
+                      {currentInFlightAction === activePendingAction ? (
                         <>
                           <RotateCcw className="w-3.5 h-3.5 animate-spin" />
                           <span>Dispatching to PayPal...</span>
@@ -1018,7 +1046,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleCancelConfirmation}
-                      disabled={submittingAction !== null}
+                      disabled={isCurrentDisputeInFlight}
                       className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 font-semibold text-xs rounded-lg transition-colors border border-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 active:scale-95 disabled:opacity-50"
                     >
                       Cancel
