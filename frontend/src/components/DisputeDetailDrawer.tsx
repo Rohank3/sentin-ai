@@ -178,6 +178,48 @@ const persistentUncertainLocks = new Set<string>();
 // Track in-flight operations per dispute across transient drawer open/close and switching
 const persistentInFlightActions = new Map<string, string>();
 
+interface CachedDisputeSnapshot {
+  detail: DisputeDetail;
+  version: number;
+  getSeq: number;
+}
+
+// Track latest authoritative dispute snapshot and associated operation version per dispute
+const persistentDisputeCache = new Map<string, CachedDisputeSnapshot>();
+
+// Track monotonically increasing operation generation/version per dispute
+const persistentDisputeOpVersion = new Map<string, number>();
+
+const getDisputeOpVersion = (disputeId: string): number => {
+  return persistentDisputeOpVersion.get(disputeId) || 0;
+};
+
+const incrementDisputeOpVersion = (disputeId: string): number => {
+  const next = (persistentDisputeOpVersion.get(disputeId) || 0) + 1;
+  persistentDisputeOpVersion.set(disputeId, next);
+  return next;
+};
+
+// Track monotonically increasing GET request sequence per dispute
+const persistentDisputeGetSeq = new Map<string, number>();
+
+const nextDisputeGetSeq = (disputeId: string): number => {
+  const next = (persistentDisputeGetSeq.get(disputeId) || 0) + 1;
+  persistentDisputeGetSeq.set(disputeId, next);
+  return next;
+};
+
+const isSnapshotEligible = (
+  cached: CachedDisputeSnapshot | undefined,
+  capturedVersion: number,
+  capturedGetSeq: number
+): boolean => {
+  if (!cached) return true;
+  if (capturedVersion > cached.version) return true;
+  if (capturedVersion === cached.version && capturedGetSeq >= cached.getSeq) return true;
+  return false;
+};
+
 export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   dispute,
   isOpen,
@@ -236,7 +278,11 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   useEffect(() => {
     sessionGenerationRef.current += 1;
 
-    setCurrentDispute(dispute);
+    // Use cached authoritative dispute if available and matching
+    const cached = dispute?.id ? persistentDisputeCache.get(dispute.id) : undefined;
+    const initialDispute = cached ? cached.detail : dispute;
+
+    setCurrentDispute(initialDispute);
     setPendingConfirmation(null);
     setNotes("");
     setFeedback(null);
@@ -262,13 +308,26 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   };
 
   const handleManualStatusRefresh = async () => {
-    if (!currentDispute || refreshingAuthoritative || isCurrentDisputeInFlight) return;
+    if (!currentDispute || refreshingAuthoritative || isCurrentDisputeInFlight || persistentInFlightActions.has(currentDispute.id)) return;
     const targetDisputeId = currentDispute.id;
     const operationGeneration = sessionGenerationRef.current;
+    const capturedVersion = getDisputeOpVersion(targetDisputeId);
+    const capturedGetSeq = nextDisputeGetSeq(targetDisputeId);
     setRefreshingAuthoritative(true);
 
     try {
       const refreshed = await api.getDispute(targetDisputeId);
+
+      // Retain authoritative snapshot in persistent cache only if eligible (latest GET of newest version)
+      const cached = persistentDisputeCache.get(targetDisputeId);
+      const isEligible = isSnapshotEligible(cached, capturedVersion, capturedGetSeq);
+      if (isEligible) {
+        persistentDisputeCache.set(targetDisputeId, {
+          detail: refreshed,
+          version: capturedVersion,
+          getSeq: capturedGetSeq,
+        });
+      }
 
       // Async session generation guard
       if (sessionGenerationRef.current !== operationGeneration) {
@@ -276,8 +335,23 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         return;
       }
 
-      setCurrentDispute(refreshed);
-      unlockDispute(targetDisputeId);
+      // Guard against stale response overwriting a newer cached snapshot
+      const latestCached = persistentDisputeCache.get(targetDisputeId);
+      setCurrentDispute(latestCached ? latestCached.detail : refreshed);
+
+      // A GET response can unlock financial actions only when:
+      // 1. No operation is currently in flight for that dispute.
+      // 2. The current operation version matches the authoritative cached snapshot's version.
+      // 3. The snapshot being relied upon is eligible under the GET sequence ordering rules.
+      if (
+        !persistentInFlightActions.has(targetDisputeId) &&
+        latestCached !== undefined &&
+        getDisputeOpVersion(targetDisputeId) === latestCached.version &&
+        isEligible
+      ) {
+        unlockDispute(targetDisputeId);
+      }
+
       setFeedback({
         type: "success",
         title: "Status Refreshed",
@@ -301,7 +375,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
   };
 
   const handleExecuteConfirmedAction = async () => {
-    if (!pendingConfirmation || isLockedForRefresh || !currentDispute || isCurrentDisputeInFlight) return;
+    if (!pendingConfirmation || isLockedForRefresh || !currentDispute || isCurrentDisputeInFlight || persistentInFlightActions.has(currentDispute.id)) return;
 
     // Safety guard: Ensure the staged dispute ID matches the currently active dispute
     if (pendingConfirmation.disputeId !== currentDispute.id) {
@@ -318,6 +392,9 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
     const targetDisputeId = currentDispute.id;
     const operationGeneration = sessionGenerationRef.current;
 
+    // Direct synchronous check on module-level persistent map before dispatching
+    if (persistentInFlightActions.has(targetDisputeId)) return;
+
     setFeedback(null);
     markInFlight(targetDisputeId, actionToExecute);
 
@@ -328,20 +405,44 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         notes || undefined
       );
 
+      // 1. Operation completed on backend: increment monotonic version
+      incrementDisputeOpVersion(targetDisputeId);
+
+      // 2. Protect dispute with persistent refresh-required lock before in-flight marker clears!
+      // This ensures actions remain locked even if the drawer session has changed.
+      lockDispute(targetDisputeId);
+
       // Async session generation guard for UI cleanup
       if (sessionGenerationRef.current === operationGeneration) {
         setPendingConfirmation(null);
         setNotes("");
       }
 
-      // Step 1: Fetch authoritative dispute detail from server after confirmed execution
+      // Step 3: Fetch authoritative dispute detail from server after confirmed execution
+      const capturedVersion = getDisputeOpVersion(targetDisputeId);
+      const capturedGetSeq = nextDisputeGetSeq(targetDisputeId);
       try {
         const updatedDispute = await api.getDispute(targetDisputeId);
 
+        // Retain authoritative result in persistent cache only if eligible
+        const cached = persistentDisputeCache.get(targetDisputeId);
+        if (isSnapshotEligible(cached, capturedVersion, capturedGetSeq)) {
+          persistentDisputeCache.set(targetDisputeId, {
+            detail: updatedDispute,
+            version: capturedVersion,
+            getSeq: capturedGetSeq,
+          });
+        }
+
         // Only unlock if still in the matching session to prevent stale requests from unlocking newer sessions
         if (sessionGenerationRef.current === operationGeneration) {
-          setCurrentDispute(updatedDispute);
-          unlockDispute(targetDisputeId);
+          const latestCached = persistentDisputeCache.get(targetDisputeId);
+          setCurrentDispute(latestCached ? latestCached.detail : updatedDispute);
+
+          // Unlock only if current version matches captured version
+          if (getDisputeOpVersion(targetDisputeId) === capturedVersion) {
+            unlockDispute(targetDisputeId);
+          }
 
           setFeedback({
             type: "success",
@@ -352,7 +453,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
       } catch (fetchErr) {
         console.warn("Failed to re-fetch dispute detail post-execution:", fetchErr);
 
-        // Problem 3: Record uncertain outcome lock against targetDisputeId independently of session generation!
+        // If post-execution authoritative refresh fails, retain the lock!
         lockDispute(targetDisputeId);
 
         if (sessionGenerationRef.current === operationGeneration) {
@@ -376,7 +477,8 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         err instanceof ApiError && err.status === 422;
 
       if (!isConfirmedPreExecutionRejection) {
-        // Problem 3: Record uncertain outcome lock against targetDisputeId independently of session generation!
+        // Record operation version increment and uncertain outcome lock independently of session generation!
+        incrementDisputeOpVersion(targetDisputeId);
         lockDispute(targetDisputeId);
       }
 
@@ -401,29 +503,56 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         }
       }
     } finally {
-      // Problem 4: Always clear targetDisputeId's in-flight marker regardless of session generation
+      // Always clear targetDisputeId's in-flight marker regardless of session generation
       clearInFlight(targetDisputeId);
     }
   };
 
   const handleRetriage = async () => {
-    if (!currentDispute || isCurrentDisputeInFlight || isLockedForRefresh || isCurrentDisputeTerminal) return;
+    if (!currentDispute || isCurrentDisputeInFlight || isLockedForRefresh || isCurrentDisputeTerminal || persistentInFlightActions.has(currentDispute.id)) return;
     setFeedback(null);
     const targetDisputeId = currentDispute.id;
     const operationGeneration = sessionGenerationRef.current;
+
+    // Direct synchronous check on module-level persistent map before dispatching
+    if (persistentInFlightActions.has(targetDisputeId)) return;
 
     markInFlight(targetDisputeId, "TRIAGE");
 
     try {
       await api.triggerTriage(targetDisputeId);
 
-      // Re-fetch authoritative dispute detail after triage
+      // 1. Triage completed on backend: increment monotonic version
+      incrementDisputeOpVersion(targetDisputeId);
+
+      // 2. Protect dispute with persistent refresh-required lock before in-flight marker clears!
+      // Backend triage may have autonomously executed a PayPal action.
+      lockDispute(targetDisputeId);
+
+      // Step 3: Re-fetch authoritative dispute detail after triage
+      const capturedVersion = getDisputeOpVersion(targetDisputeId);
+      const capturedGetSeq = nextDisputeGetSeq(targetDisputeId);
       try {
         const updated = await api.getDispute(targetDisputeId);
 
+        // Retain authoritative result in persistent cache only if eligible
+        const cached = persistentDisputeCache.get(targetDisputeId);
+        if (isSnapshotEligible(cached, capturedVersion, capturedGetSeq)) {
+          persistentDisputeCache.set(targetDisputeId, {
+            detail: updated,
+            version: capturedVersion,
+            getSeq: capturedGetSeq,
+          });
+        }
+
         if (sessionGenerationRef.current === operationGeneration) {
-          setCurrentDispute(updated);
-          unlockDispute(targetDisputeId);
+          const latestCached = persistentDisputeCache.get(targetDisputeId);
+          setCurrentDispute(latestCached ? latestCached.detail : updated);
+
+          // Unlock only if current version matches captured version
+          if (getDisputeOpVersion(targetDisputeId) === capturedVersion) {
+            unlockDispute(targetDisputeId);
+          }
 
           setFeedback({
             type: "success",
@@ -434,9 +563,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
       } catch (fetchErr) {
         console.warn("Failed to re-fetch dispute detail post-triage:", fetchErr);
 
-        // Problem 5 (Case A): Triage succeeded, but authoritative GET failed.
-        // Lock financial actions independently of session generation because backend triage
-        // may have autonomously executed a PayPal action.
+        // Case E: Triage succeeded, but authoritative GET failed. Lock retained!
         lockDispute(targetDisputeId);
 
         if (sessionGenerationRef.current === operationGeneration) {
@@ -456,20 +583,34 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         err instanceof ApiError && err.status === 422;
 
       if (!isConfirmedPreExecutionRejection) {
-        // Triage failed ambiguously. Attempt to probe dispute state.
+        // Triage failed ambiguously. Increment version and lock dispute immediately!
+        incrementDisputeOpVersion(targetDisputeId);
+        lockDispute(targetDisputeId);
+
+        // Attempt to probe dispute state
         let probeSucceeded = false;
         let probedDispute: DisputeDetail | null = null;
+        const probeVersion = getDisputeOpVersion(targetDisputeId);
+        const probeGetSeq = nextDisputeGetSeq(targetDisputeId);
 
         try {
           probedDispute = await api.getDispute(targetDisputeId);
           probeSucceeded = true;
+          // Retain authoritative result in persistent cache if eligible
+          const cached = persistentDisputeCache.get(targetDisputeId);
+          if (isSnapshotEligible(cached, probeVersion, probeGetSeq)) {
+            persistentDisputeCache.set(targetDisputeId, {
+              detail: probedDispute,
+              version: probeVersion,
+              getSeq: probeGetSeq,
+            });
+          }
         } catch (probeErr) {
           console.warn("Failed to probe dispute state after ambiguous triage:", probeErr);
         }
 
         if (!probeSucceeded) {
-          // Problem 5 (Case B): Triage failed ambiguously AND follow-up probe also failed!
-          // Lock financial actions independently of session generation.
+          // Case G: Triage failed ambiguously AND follow-up probe also failed!
           lockDispute(targetDisputeId);
         }
 
@@ -477,7 +618,9 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
 
         if (sessionGenerationRef.current === operationGeneration) {
           if (probeSucceeded && probedDispute) {
-            setCurrentDispute(probedDispute);
+            // Case F: Probe succeeded → authoritative result displayed
+            const latestCached = persistentDisputeCache.get(targetDisputeId);
+            setCurrentDispute(latestCached ? latestCached.detail : probedDispute);
           }
           setFeedback({
             type: "uncertain",
@@ -498,7 +641,7 @@ export const DisputeDetailDrawer: React.FC<DisputeDetailDrawerProps> = ({
         });
       }
     } finally {
-      // Problem 4: Always clear in-flight marker regardless of session generation
+      // Always clear in-flight marker regardless of session generation
       clearInFlight(targetDisputeId);
     }
   };
