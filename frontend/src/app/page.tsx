@@ -149,10 +149,18 @@ function computeFallbackStats(disputeList: DisputeSummary[]): StatsResponse {
     .filter((d) => d.status === "OPEN" || d.status === "UNDER_REVIEW")
     .reduce((acc, d) => acc + (d.amount || 0), 0);
   const protectedAmt = disputeList
-    .filter((d) => d.status === "RESOLVED" || d.action_taken === "EVIDENCE_SUBMITTED")
+    .filter(
+      (d) =>
+        d.action_taken !== "REFUNDED" &&
+        (d.action_taken === "EVIDENCE_SUBMITTED" ||
+          (d.status === "RESOLVED" && d.ai_decision?.recommended_action === "CONTEST"))
+    )
     .reduce((acc, d) => acc + (d.amount || 0), 0);
   const won = disputeList.filter(
-    (d) => d.status === "RESOLVED" || (d.ai_decision && d.ai_decision.win_probability >= 0.7)
+    (d) =>
+      d.status === "RESOLVED" &&
+      d.action_taken !== "REFUNDED" &&
+      (d.action_taken === "EVIDENCE_SUBMITTED" || d.ai_decision?.recommended_action === "CONTEST")
   ).length;
   const autoExec = disputeList.filter((d) => d.auto_executed).length;
   return {
@@ -191,7 +199,7 @@ export default function Home() {
   // Concurrency & stale request guard refs
   const requestIdRef = useRef(0);
   const isFetchingRef = useRef(false);
-  const initialLoadedRef = useRef(false);
+  const displayedSellerKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -223,7 +231,6 @@ export default function Home() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     setLoading(true);
     const currentReqId = ++requestIdRef.current;
@@ -236,28 +243,28 @@ export default function Home() {
       if (currentReqId !== requestIdRef.current) return;
       setDisputes(disputesRes.disputes);
       setStats(statsRes);
+      displayedSellerKeyRef.current = selectedSeller;
       setIsOfflineMode(false);
-      initialLoadedRef.current = true;
       setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     } catch {
       if (currentReqId !== requestIdRef.current) return;
       setIsOfflineMode(true);
-      // Only reset to static fallbacks on initial load; on later failures, retain last successfully fetched data
-      if (!initialLoadedRef.current) {
+      // Rebuild fallback when displayedSellerKey differs from selectedSeller
+      if (displayedSellerKeyRef.current !== selectedSeller) {
         let filtered = FALLBACK_DISPUTES;
         if (selectedSeller !== "ALL") {
           filtered = FALLBACK_DISPUTES.filter((d) => d.seller_id === selectedSeller);
         }
         setDisputes(filtered);
         setStats(computeFallbackStats(filtered));
-        initialLoadedRef.current = true;
+        displayedSellerKeyRef.current = selectedSeller;
       }
       setLastSyncTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     } finally {
       if (currentReqId === requestIdRef.current) {
         setLoading(false);
+        isFetchingRef.current = false;
       }
-      isFetchingRef.current = false;
     }
   }, [selectedSeller]);
 

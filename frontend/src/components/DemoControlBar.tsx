@@ -268,15 +268,15 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
             <span>Custom Simulation</span>
           </button>
 
-          {/* Category Tabs */}
+          {/* Category Filters */}
           <div
-            role="tablist"
+            role="group"
             aria-label="Filter simulation scenarios"
             className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs"
           >
             <button
-              role="tab"
-              aria-selected={activeTab === "ALL"}
+              type="button"
+              aria-pressed={activeTab === "ALL"}
               onClick={() => setActiveTab("ALL")}
               className={`px-2.5 py-1 rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] active:scale-95 ${
                 activeTab === "ALL"
@@ -287,8 +287,8 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               All (6)
             </button>
             <button
-              role="tab"
-              aria-selected={activeTab === "AUTO"}
+              type="button"
+              aria-pressed={activeTab === "AUTO"}
               onClick={() => setActiveTab("AUTO")}
               className={`px-2.5 py-1 rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] active:scale-95 ${
                 activeTab === "AUTO"
@@ -299,8 +299,8 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               Autonomous
             </button>
             <button
-              role="tab"
-              aria-selected={activeTab === "RISK"}
+              type="button"
+              aria-pressed={activeTab === "RISK"}
               onClick={() => setActiveTab("RISK")}
               className={`px-2.5 py-1 rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] active:scale-95 ${
                 activeTab === "RISK"
@@ -427,6 +427,17 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Error Notification inside modal */}
+            {lastResponse && lastResponse.status === "FAILED" && (
+              <div
+                role="alert"
+                className="flex items-center gap-2 p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{lastResponse.message}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCustomInject} className="space-y-3.5 text-xs">
               <div>
