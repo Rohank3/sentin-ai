@@ -23,9 +23,9 @@
 | Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **WIP** | `feat/paypal-integration` | None | Verified ingestion; process-local persistence; real triage handoff pending |
 | Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STABLE** | `feat/paypal-integration` | Explicit SIM- demo records | Local scenarios; preserves other owners' triage interface |
 | PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **WIP** | `feat/paypal-integration` | Marked simulated responses | Real Sandbox OAuth verified; evidence/claim/refund request paths tested with mocks; end-to-end acceptance pending |
-| AI Agent | `backend/app/engine/agent.py` | AI Dev | **STUB** | `feat/ai-engine` | Hardcoded `AIDecision` | Gemini 2.0 Flash evaluator |
-| EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **WIP** | `feat/ai-engine` | Correct EV formula | Pure math, no external deps |
-| RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **STUB** | `feat/ai-engine` | Hardcoded policy text | Elastic hybrid search |
+| AI Agent | `backend/app/engine/agent.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Gemini 2.0 Flash structured outputs + heuristic fallback |
+| EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Pure math EV formula, break-even probability, and boundary validation |
+| RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Elasticsearch hybrid (BM25 + kNN) with NumPy cosine similarity fallback |
 
 ## PayPal Delivery and Acceptance Status (2026-10-30)
 

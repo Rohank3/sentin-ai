@@ -2,6 +2,15 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-11-07] AI Engine, EV Calculator, and Hybrid RAG Store Implementation
+- Completed implementation of Role 3: AI Engine & RAG Specialist on branch `feat/ai-engine`.
+- `ev_calculator.py`: Enforced mathematically exact EV formulation, added `break_even_probability` analytical helper, input clamping, and partial settlement concession support.
+- `rag_store.py`: Built dual-mode hybrid search engine combining Elasticsearch 8.x (BM25 keyword + dense vector kNN) with a zero-dependency in-memory NumPy dense vector cosine similarity fallback; synced with seed fixtures (`policies.json`, `carriers.json`, `customers.json`).
+- `agent.py`: Integrated Google Gemini 2.0 Flash structured outputs using `google-genai` SDK and `AIDecision` Pydantic response schema; hardened with platform autonomy guardrails and comprehensive deterministic risk heuristics.
+- Added comprehensive unit test suite in `backend/tests/test_ai_engine.py` (21 tests covering math, vector retrieval, and claims agent scenarios; 54 total backend tests passing).
+- Promoted `agent.py`, `ev_calculator.py`, and `rag_store.py` to `STABLE` in `MODULES.md`.
+
+
 ## [2026-10-31] Integrate dev sandbox setup into PayPal feature branch
 - User relayed the Tech Lead request to pull dev and resolve integration conflicts.
 - Combine upstream account fields, schema/seed updates, and DEC-012 through DEC-014 with existing PayPal implementation and refund safeguards.
