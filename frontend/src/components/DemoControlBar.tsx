@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   PackageCheck,
   PackageX,
@@ -8,6 +8,7 @@ import {
   Zap,
   ShieldAlert,
   CheckCircle2,
+  AlertCircle,
   DollarSign,
   Sliders,
   X,
@@ -42,6 +43,19 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
   const [lastResponse, setLastResponse] = useState<SimulateResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"ALL" | "AUTO" | "RISK">("ALL");
   const [showCustomModal, setShowCustomModal] = useState(false);
+  const customModalCloseBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!showCustomModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowCustomModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    customModalCloseBtnRef.current?.focus();
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showCustomModal]);
 
   // Custom Simulator state
   const [customScenario, setCustomScenario] = useState<{
@@ -157,15 +171,17 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
       });
       setLastResponse(res);
       onScenarioInjected();
+      if (res && res.dispute_id && onSelectDisputeId) {
+        onSelectDisputeId(res.dispute_id);
+      }
     } catch {
       setLastResponse({
         dispute_id: "",
-        paypal_dispute_id: "SIM-LOCAL",
+        paypal_dispute_id: "SIM-FAILED",
         scenario_type: scenarioType,
-        status: "COMPLETED",
-        message: `${label} simulated successfully. AI Triage complete.`,
+        status: "FAILED",
+        message: `Simulation failed for ${label}. Check backend connection.`,
       });
-      onScenarioInjected();
     } finally {
       setInjecting(null);
     }
@@ -173,6 +189,21 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
 
   const handleCustomInject = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (
+      customScenario.amount < 1 ||
+      customScenario.amount > 10000 ||
+      isNaN(customScenario.amount)
+    ) {
+      setLastResponse({
+        dispute_id: "",
+        paypal_dispute_id: "VALIDATION_ERROR",
+        scenario_type: customScenario.scenario_type,
+        status: "FAILED",
+        message: "Dispute amount must be between $1.00 and $10,000.00.",
+      });
+      return;
+    }
+
     setInjecting("CUSTOM");
     setLastResponse(null);
     try {
@@ -187,16 +218,17 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
       setLastResponse(res);
       setShowCustomModal(false);
       onScenarioInjected();
+      if (res && res.dispute_id && onSelectDisputeId) {
+        onSelectDisputeId(res.dispute_id);
+      }
     } catch {
       setLastResponse({
         dispute_id: "",
-        paypal_dispute_id: "SIM-CUSTOM",
+        paypal_dispute_id: "SIM-FAILED",
         scenario_type: customScenario.scenario_type,
-        status: "COMPLETED",
-        message: `Custom $${customScenario.amount.toFixed(2)} claim simulated with AI Triage.`,
+        status: "FAILED",
+        message: "Custom dispute simulation failed. Check backend connection.",
       });
-      setShowCustomModal(false);
-      onScenarioInjected();
     } finally {
       setInjecting(null);
     }
@@ -237,10 +269,16 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
           </button>
 
           {/* Category Tabs */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
+          <div
+            role="tablist"
+            aria-label="Filter simulation scenarios"
+            className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs"
+          >
             <button
+              role="tab"
+              aria-selected={activeTab === "ALL"}
               onClick={() => setActiveTab("ALL")}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] active:scale-95 ${
                 activeTab === "ALL"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -249,8 +287,10 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               All (6)
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === "AUTO"}
               onClick={() => setActiveTab("AUTO")}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] active:scale-95 ${
                 activeTab === "AUTO"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -259,8 +299,10 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               Autonomous
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === "RISK"}
               onClick={() => setActiveTab("RISK")}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] active:scale-95 ${
                 activeTab === "RISK"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -275,6 +317,8 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
       {/* Live Injected Response Toast / Notification */}
       {lastResponse && (
         <div
+          role="status"
+          aria-live="polite"
           className={`flex items-center justify-between gap-3 text-xs p-3 rounded-lg border shadow-sm transition-all ${
             lastResponse.status === "FAILED"
               ? "bg-rose-50 text-rose-800 border-rose-200"
@@ -282,7 +326,11 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
           }`}
         >
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            {lastResponse.status === "FAILED" ? (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            )}
             <div>
               <span className="font-bold text-slate-900 mr-1.5 font-mono">
                 {lastResponse.paypal_dispute_id}
@@ -292,7 +340,8 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
           </div>
           <button
             onClick={() => setLastResponse(null)}
-            className="text-slate-400 hover:text-slate-600 p-1"
+            aria-label="Dismiss notification"
+            className="text-slate-400 hover:text-slate-700 active:text-slate-900 p-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba]"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -352,18 +401,28 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
 
       {/* Custom Simulator Modal */}
       {showCustomModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="custom-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowCustomModal(false);
+          }}
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-2xl p-6 text-slate-800 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Sliders className="w-5 h-5 text-[#0070ba]" />
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 id="custom-modal-title" className="text-base font-bold text-slate-900">
                   Custom Sandbox Scenario Simulator
                 </h3>
               </div>
               <button
+                ref={customModalCloseBtnRef}
                 onClick={() => setShowCustomModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                aria-label="Close custom simulation modal"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -371,10 +430,11 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
 
             <form onSubmit={handleCustomInject} className="space-y-3.5 text-xs">
               <div>
-                <label className="text-slate-700 font-semibold block mb-1">
+                <label htmlFor="custom-scenario-type" className="text-slate-700 font-semibold block mb-1">
                   Scenario Archetype
                 </label>
                 <select
+                  id="custom-scenario-type"
                   value={customScenario.scenario_type}
                   onChange={(e) =>
                     setCustomScenario({
@@ -395,10 +455,11 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-slate-700 font-semibold block mb-1">
+                  <label htmlFor="custom-amount" className="text-slate-700 font-semibold block mb-1">
                     Dispute Amount ($ USD)
                   </label>
                   <input
+                    id="custom-amount"
                     type="number"
                     step="0.01"
                     min="1"
@@ -415,10 +476,11 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-slate-700 font-semibold block mb-1">
+                  <label htmlFor="custom-seller-id" className="text-slate-700 font-semibold block mb-1">
                     Merchant Store
                   </label>
                   <select
+                    id="custom-seller-id"
                     value={customScenario.seller_id}
                     onChange={(e) =>
                       setCustomScenario({
@@ -435,10 +497,11 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-700 font-semibold block mb-1">
+                <label htmlFor="custom-customer-email" className="text-slate-700 font-semibold block mb-1">
                   Buyer Account Email
                 </label>
                 <input
+                  id="custom-customer-email"
                   type="email"
                   value={customScenario.customer_email}
                   onChange={(e) =>
@@ -452,10 +515,11 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-700 font-semibold block mb-1">
+                <label htmlFor="custom-reason" className="text-slate-700 font-semibold block mb-1">
                   Dispute Reason Code
                 </label>
                 <select
+                  id="custom-reason"
                   value={customScenario.reason}
                   onChange={(e) =>
                     setCustomScenario({
@@ -479,7 +543,7 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
               <div className="flex items-center gap-2 pt-1">
                 <input
                   type="checkbox"
-                  id="auto_triage"
+                  id="custom-auto-triage"
                   checked={customScenario.auto_triage}
                   onChange={(e) =>
                     setCustomScenario({
@@ -489,7 +553,7 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
                   }
                   className="rounded border-slate-300 text-[#0070ba] focus:ring-[#0070ba] w-4 h-4"
                 />
-                <label htmlFor="auto_triage" className="text-slate-700 font-medium">
+                <label htmlFor="custom-auto-triage" className="text-slate-700 font-medium">
                   Trigger automated AI Triage &amp; EV arbitration immediately
                 </label>
               </div>
@@ -498,14 +562,14 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCustomModal(false)}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors border border-slate-200"
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 font-semibold rounded-lg transition-colors border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={injecting !== null}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-[#0070ba] hover:bg-[#005ea6] text-white font-bold rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#0070ba] hover:bg-[#005ea6] active:bg-[#004b85] text-white font-bold rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba]"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Simulate Dispute</span>

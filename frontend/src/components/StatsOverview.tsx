@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ShieldCheck,
   AlertTriangle,
@@ -19,6 +19,7 @@ interface StatsOverviewProps {
   onRefresh?: () => void;
   sellerFilter?: string | null;
   sellerName?: string | null;
+  isOffline?: boolean;
 }
 
 export const StatsOverview: React.FC<StatsOverviewProps> = ({
@@ -27,8 +28,22 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
   onRefresh,
   sellerFilter,
   sellerName,
+  isOffline = false,
 }) => {
   const [showFormulaModal, setShowFormulaModal] = useState(false);
+  const modalCloseBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!showFormulaModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowFormulaModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    modalCloseBtnRef.current?.focus();
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showFormulaModal]);
 
   if (loading && !stats) {
     return (
@@ -78,13 +93,30 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
 
   const winRatePercent = Math.round(safeStats.win_rate * 100);
 
+  const formatCurrency = (amount: number, curr = "USD") => {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: curr || "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount);
+    } catch {
+      return `$${amount.toFixed(2)}`;
+    }
+  };
+
+  const winRateTag =
+    winRatePercent >= 80
+      ? "Strong Defense"
+      : winRatePercent >= 50
+      ? "Moderate Defense"
+      : "Under Baseline";
+
   const cards = [
     {
       title: "Protected Capital",
-      value: `$${safeStats.total_amount_protected.toLocaleString("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`,
+      value: formatCurrency(safeStats.total_amount_protected, safeStats.currency),
       subtitle: `${safeStats.auto_executed_count} claims successfully defended`,
       icon: ShieldCheck,
       color: "text-emerald-600",
@@ -96,10 +128,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
     },
     {
       title: "Active Exposure",
-      value: `$${safeStats.total_amount_at_risk.toLocaleString("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`,
+      value: formatCurrency(safeStats.total_amount_at_risk, safeStats.currency),
       subtitle: `${safeStats.open_disputes} claims under active review`,
       icon: AlertTriangle,
       color: "text-amber-600",
@@ -116,7 +145,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
       icon: TrendingUp,
       color: "text-[#0070ba]",
       bgColor: "bg-blue-50 border-blue-200",
-      tag: "Top 5% Tier",
+      tag: winRateTag,
       tagColor: "bg-blue-50 text-[#0070ba] border-blue-200",
       tooltip:
         "Percentage of contested disputes awarded in favor of the seller by PayPal claims adjudication.",
@@ -164,16 +193,23 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
 
         <div className="flex items-center gap-3 self-end sm:self-auto">
           {/* Real-time Webhook Pulse Indicator */}
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-600 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-sm">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="font-medium text-slate-500 hidden md:inline">
-              PayPal Webhooks:
-            </span>
-            <span className="font-semibold text-emerald-700">Synchronized</span>
-          </div>
+          {isOffline ? (
+            <div className="flex items-center gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full shadow-sm">
+              <span className="inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              <span className="font-semibold">Offline (mock data)</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-600 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="font-medium text-slate-500 hidden md:inline">
+                PayPal Webhooks:
+              </span>
+              <span className="font-semibold text-emerald-700">Synchronized</span>
+            </div>
+          )}
 
           {/* Refresh Button */}
           {onRefresh && (
@@ -217,11 +253,6 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
               <div className="mt-4">
                 <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight font-mono flex items-baseline gap-2">
                   <span>{c.value}</span>
-                  {safeStats.currency && idx === 0 && (
-                    <span className="text-xs font-semibold text-slate-400 font-sans">
-                      {safeStats.currency}
-                    </span>
-                  )}
                 </div>
 
                 {/* Progress bar if present */}
@@ -254,18 +285,27 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
 
       {/* EV Mathematical Model Explainer Modal */}
       {showFormulaModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ev-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowFormulaModal(false);
+          }}
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-2xl p-6 text-slate-700 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 id="ev-modal-title" className="text-base font-bold text-slate-900">
                   Mathematical Expected Value (EV) Model
                 </h3>
               </div>
               <button
+                ref={modalCloseBtnRef}
                 onClick={() => setShowFormulaModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] focus-visible:ring-offset-2"
                 aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
@@ -288,7 +328,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
                 <div className="flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="text-slate-900">Auto-Execution Guardrails:</strong> Claims under $100 with win probability &ge; 70% and buyer risk score &le; 0.50 are dispatched automatically via PayPal Disputes v1.
+                    <strong className="text-slate-900">Auto-Execution Guardrails:</strong> Configurable fallback default thresholds apply in heuristic mode: claims with amount &le; $100.00 (inclusive), win probability &ge; 70%, and buyer risk score &le; 0.50 are auto-executed via PayPal Disputes v1. When live Gemini AI arbitration is enabled, decisions are determined directly by the model&apos;s structured reasoning.
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
@@ -303,7 +343,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
             <div className="pt-2 border-t border-slate-100 flex justify-end">
               <button
                 onClick={() => setShowFormulaModal(false)}
-                className="px-4 py-2 bg-[#0070ba] hover:bg-[#005ea6] text-white font-semibold text-xs rounded-lg transition-colors shadow-sm"
+                className="px-4 py-2 bg-[#0070ba] hover:bg-[#005ea6] text-white font-semibold text-xs rounded-lg transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] focus-visible:ring-offset-2"
               >
                 Close
               </button>
