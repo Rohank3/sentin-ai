@@ -1,6 +1,6 @@
 # Module Registry
 
-> **Last Updated:** 2026-11-07 (Checkpoint 3 reconciliation)
+> **Last Updated:** 2026-11-08 (Dev & Main baseline integration)
 >
 > Check this file BEFORE modifying any module. Respect the `Status` column.
 > - **STUB**: Returns placeholder/hardcoded data. Do NOT replace with real logic unless you are the Owner.
@@ -23,9 +23,9 @@
 | Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **WIP** | `dev` | None | Verified ingestion; 10,000-event deduplication; process-local persistence; real triage handoff pending |
 | Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STABLE** | `dev` | Explicit SIM- demo records | Local scenarios; preserves other owners' triage interface |
 | PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **STABLE** | `dev` | Marked simulated responses | Real Sandbox OAuth verified; capture resolution, refund idempotency, note bounding, and 33 unit tests passing |
-| AI Agent | `backend/app/engine/agent.py` | AI Dev | **WIP** | `feat/ai-engine` | Heuristic fallback | Gemini 2.0 Flash structured outputs + deterministic heuristic fallback engine |
-| EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Pure math EV formula, unit tested |
-| RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **WIP** | `feat/ai-engine` | In-memory fallback | Elastic hybrid search client + fallback keyword store |
+| AI Agent | `backend/app/engine/agent.py` | AI Dev | **STABLE** | `dev` | N/A | Gemini 2.0 Flash structured outputs + deterministic heuristic fallback engine |
+| EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **STABLE** | `dev` | N/A | Pure math EV formula, break-even probability, and boundary validation |
+| RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **STABLE** | `dev` | N/A | Elasticsearch hybrid (BM25 + kNN) with NumPy dense vector cosine similarity fallback |
 
 ## PayPal Delivery and Acceptance Status (2026-10-31)
 

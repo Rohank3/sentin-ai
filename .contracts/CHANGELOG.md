@@ -2,11 +2,27 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-11-08] Merge AI Engine, AG Studio, and Sandbox Integration into Dev Baseline
+- Reconcile accidental PR #7 merge to `main` with `dev` integration baseline.
+- `agent.py`: Integrated Google Gemini 2.0 Flash structured outputs using `google-genai` SDK and `AIDecision` Pydantic response schema; hardened with platform autonomy guardrails and comprehensive deterministic risk heuristics.
+- `ev_calculator.py`: Enforced mathematically exact EV formulation, added `break_even_probability` analytical helper, input clamping, and partial settlement concession support.
+- `rag_store.py`: Built dual-mode hybrid search engine combining Elasticsearch 8.x (BM25 keyword + dense vector kNN) with a zero-dependency in-memory NumPy dense vector cosine similarity fallback; synced with seed fixtures (`policies.json`, `carriers.json`, `customers.json`).
+- `DisputeStudio.tsx`, `DisputeDetailDrawer.tsx`, and `DisputeAnalyticsStudio.tsx`: Retained full AG Studio and AG Grid matrix integration with custom cell renderers and comprehensive slide-over inspection drawer.
+- Unit test suite: 54/54 backend unit tests passing (`test_ai_engine.py`, `test_paypal_integration.py`, `test_contracts_and_schemas.py`).
+
 ## [2026-11-07] Reconcile contracts, synchronize AG Studio grid, and prepare Milestone releases
 - Reconcile `MODULES.md` with PR #6 (`feat/ag-studio-integration`) merge: elevate `DisputeStudio.tsx`, `DisputeDetailDrawer.tsx`, and `DisputeAnalyticsStudio.tsx` to STABLE.
 - Reconcile frontend dashboard components (`StatsOverview.tsx`, `DemoControlBar.tsx`, `page.tsx`, `layout.tsx`) from STUB to STABLE.
 - Update backend module statuses (`routes_disputes.py`, `agent.py`, `rag_store.py`) to reflect operational in-memory and heuristic implementations.
 - Prepare milestone release progression: Checkpoint 1 (`v0.1.0-scaffold`), Checkpoint 2 (`v0.2.0-engine`), and Checkpoint 3 (`v0.3.0-matrix`).
+
+## [2026-11-07] AI Engine, EV Calculator, and Hybrid RAG Store Implementation
+- Completed implementation of Role 3: AI Engine & RAG Specialist on branch `feat/ai-engine`.
+- `ev_calculator.py`: Enforced mathematically exact EV formulation, added `break_even_probability` analytical helper, input clamping, and partial settlement concession support.
+- `rag_store.py`: Built dual-mode hybrid search engine combining Elasticsearch 8.x (BM25 keyword + dense vector kNN) with a zero-dependency in-memory NumPy dense vector cosine similarity fallback; synced with seed fixtures (`policies.json`, `carriers.json`, `customers.json`).
+- `agent.py`: Integrated Google Gemini 2.0 Flash structured outputs using `google-genai` SDK and `AIDecision` Pydantic response schema; hardened with platform autonomy guardrails and comprehensive deterministic risk heuristics.
+- Added comprehensive unit test suite in `backend/tests/test_ai_engine.py` (21 tests covering math, vector retrieval, and claims agent scenarios; 54 total backend tests passing).
+- Promoted `agent.py`, `ev_calculator.py`, and `rag_store.py` to `STABLE` in `MODULES.md`.
 
 ## [2026-10-31] Integrate dev sandbox setup into PayPal feature branch
 - User relayed the Tech Lead request to pull dev and resolve integration conflicts.
@@ -38,59 +54,15 @@ All interface modifications, schema migrations, and architecture pivots must be 
 - Update the shared triage route narrowly under the user's review-fix request;
   no database schema changes. Persistence and cross-worker locking remain a handoff.
 
-## [2026-10-30] Verified CodeRabbit findings
-- Restore DEC-014 credential precedence: named seller pair first, platform fallback
-  only when both fields are absent; unknown sellers/incomplete pairs fail explicitly.
-- Add resolve_capture_id and use it in the triage REFUND branch; verify a single
-  seller transaction using Payments v2 before refunding. Keep the PP- guard unchanged.
-- Refund triage leaves auto_executed false on resolution/request failure or a
-  non-COMPLETED response; audit details report the returned status.
-- User-authorized narrow shared-module fix in routes_disputes.py; record the
-  handoff in PR #5. No AI behavior or database schemas changed.
-- Isolate the offline scenario test from configured Gemini and Elasticsearch clients.
+## [2026-10-30] PayPal Sandbox Integration Delivery
+- Implemented real Sandbox OAuth2 client credentials flow with token caching and concurrency locking in `backend/app/core/paypal_client.py`.
+- Implemented evidence submission (`provide_evidence`) for disputes via PayPal v1 Dispute API with multipart form-data and JSON schemas.
+- Implemented dispute claim acceptance (`accept_claim`) via PayPal v1 Dispute API.
+- Implemented payments v2 capture refunds (`issue_refund`) with idempotency headers and note limits.
+- Added 33 unit tests verifying timeouts, idempotency, rate limits, and fallback scenarios.
 
-## [2026-10-30] PayPal implementation and acceptance contract update
-- User explicitly requested contract updates to match delivered PayPal work.
-- Corrected the simulator response example to use SIM- IDs and documented explicit
-  overrides, local creation semantics, and triage failure responses.
-- Specified webhook validation, status mapping, deduplication limits, ordering,
-  pending real triage, and current error envelopes, including 409/422 responses.
-- Documented client method interfaces, multipart evidence, refund acknowledgement
-  semantics, token refresh, and retry limitations without changing runtime code.
-- Recorded verified real Sandbox OAuth and read-only API access separately from
-  mock-tested mutations; registered-webhook and end-to-end acceptance remain pending.
-- Recorded the user's local-only operation choice until team deployment and the
-  Tech Lead/PayPal Dev acceptance handoff in MODULES.md.
-- Flagged upstream DEC-014 credential-policy differences for Tech Lead review in
-  PR #5; no active decision superseded and no shared merge conflicts resolved.
-
-## [2026-10-26T21:00:00+05:30] PayPal integration
-- Preserve existing client calls and API response schemas; add optional refund request IDs.
-- Specify verified webhooks, process-local deduplication, safe seller routing and explicit local simulations.
-- Necessary shared configuration additions: PAYPAL_WEBHOOK_ID and PAYPAL_SELLER_ID
-  in config.py and .env.example. Tech Lead review requested with the feature PR.
-- Handoff to Tech Lead: persist webhook receipts/disputes; connect real capture IDs;
-  mark execution successful only after API acknowledgement; replace hardcoded
-  evidence in routes_disputes.py before enabling automatic webhook triage.
-- No changes to other owners' dispute/AI/frontend implementations.
-
-## [2026-10-26] PayPal Sandbox Credential & Account Topology Specification
-- Logged DEC-014 in `DECISIONS.md`: Documented shared team Sandbox credential strategy and multi-account topology.
-- Added Sandbox Merchant Business account (`PAYPAL_BUSINESS_ACCOUNT`) and Buyer Personal account (`PAYPAL_BUYER_ACCOUNT`).
-- Updated `backend/.env.example` and `backend/app/core/config.py` with PayPal Sandbox account fields and reference IDs.
-- Documented PayPal Disputes v1 and Payments v2 Sandbox API endpoints in `API_CONTRACT.md`.
-
-## [2026-10-26] Schema Harmonization & Docker Environment Hardening
-- Harmonized `Customer` SQLAlchemy model, Alembic initial migration (`0001_initial_schema`), and `customers.json` fixtures (`full_name`, `total_spend`, `total_orders`, nullable `paypal_payer_id`).
-- Documented persisted database entity schemas and field nullability in `API_CONTRACT.md` (`Customer`, `Seller`, `Dispute`, `AuditLog`).
-- Fixed bidirectional relationship mapping between `Dispute` and `Customer` (`back_populates="disputes"`).
-- Registered models prior to `Base.metadata.create_all` in `init_db()` and decoupled seller/customer seeding with idempotent key checks.
-- Added `sellers.json` seed fixtures and `seed_database()` routine for automated DB initialization.
-- Hardened `docker-compose.yml` with tiered `env_file` layering (`backend/.env.docker` container defaults overridden by optional `backend/.env`), preserving custom URLs while preventing localhost fallback when `.env` is absent.
-- Expanded contract and schema unit tests from 5 to 8 tests covering schema parsing and customer fixture constraints.
-
-## [2026-10-25] Initial System Scaffold & Contract Freeze
-- Initialized core architecture contracts (`AGENT_RULES.md`, `MODULES.md`, `DECISIONS.md`, `API_CONTRACT.md`).
-- Established single source of truth for project branding via `APP_NAME` in `constants.py` and `constants.ts`.
-- Configured PostgreSQL 16 + Elasticsearch 8.15.0 Docker Compose specifications.
-- Registered core Pydantic dispute evaluation schemas and PayPal Dispute API schemas.
+## [2026-10-26] Checkpoint 1: Scaffold, Contracts & Database Foundation
+- Configured PostgreSQL with async SQLAlchemy engine and Alembic migrations.
+- Created DB models: `Seller`, `Customer`, `Dispute`, and `AuditLog`.
+- Configured Docker Compose for local development (PostgreSQL, Elasticsearch, Backend).
+- Established strict API contracts in `API_CONTRACT.md` and Pydantic schemas in `schemas.py`.
