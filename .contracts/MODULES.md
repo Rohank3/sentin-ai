@@ -1,6 +1,6 @@
 # Module Registry
 
-> **Last Updated:** 2026-10-31 (PayPal scope)
+> **Last Updated:** 2026-11-08 (Dev baseline with Checkpoint 4 UX integration)
 >
 > Check this file BEFORE modifying any module. Respect the `Status` column.
 > - **STUB**: Returns placeholder/hardcoded data. Do NOT replace with real logic unless you are the Owner.
@@ -13,25 +13,26 @@
 
 | Module | File Path | Owner | Status | Branch | Stub Returns | Notes |
 |---|---|---|---|---|---|---|
-| Constants | `backend/app/core/constants.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | `APP_NAME`, version, description |
-| Config | `backend/app/core/config.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | Pydantic Settings from `.env` |
-| Database | `backend/app/core/database.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | SQLAlchemy async engine + session |
-| DB Models | `backend/app/models/db_models.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | Seller, Customer, Dispute, AuditLog |
-| Schemas | `backend/app/models/schemas.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | Pydantic request/response models |
-| Main App | `backend/app/main.py` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | FastAPI entrypoint with CORS + routers |
-| Disputes API | `backend/app/api/routes_disputes.py` | Tech Lead | **STUB** | `feat/core-scaffold` | `[]` empty list | CRUD + triage trigger endpoints |
-| Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **WIP** | `feat/paypal-integration` | None | Verified ingestion; process-local persistence; real triage handoff pending |
-| Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STABLE** | `feat/paypal-integration` | Explicit SIM- demo records | Local scenarios; preserves other owners' triage interface |
-| PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **WIP** | `feat/paypal-integration` | Marked simulated responses | Real Sandbox OAuth verified; evidence/claim/refund request paths tested with mocks; end-to-end acceptance pending |
-| AI Agent | `backend/app/engine/agent.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Gemini 2.0 Flash structured outputs + heuristic fallback |
-| EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Pure math EV formula, break-even probability, and boundary validation |
-| RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **STABLE** | `feat/ai-engine` | N/A | Elasticsearch hybrid (BM25 + kNN) with NumPy cosine similarity fallback |
+| Constants | `backend/app/core/constants.py` | Tech Lead | **STABLE** | `dev` | N/A | `APP_NAME`, version, description |
+| Config | `backend/app/core/config.py` | Tech Lead | **STABLE** | `dev` | N/A | Pydantic Settings from `.env` |
+| Database | `backend/app/core/database.py` | Tech Lead | **STABLE** | `dev` | N/A | SQLAlchemy async engine + session |
+| DB Models | `backend/app/models/db_models.py` | Tech Lead | **STABLE** | `dev` | N/A | Seller, Customer, Dispute, AuditLog |
+| Schemas | `backend/app/models/schemas.py` | Tech Lead | **STABLE** | `dev` | N/A | Pydantic request/response models |
+| Main App | `backend/app/main.py` | Tech Lead | **STABLE** | `dev` | N/A | FastAPI entrypoint with CORS + routers |
+| Disputes API | `backend/app/api/routes_disputes.py` | Tech Lead | **WIP** | `dev` | In-memory `SEED_DISPUTES` | In-memory CRUD, stats, and triage endpoints operational; PostgreSQL AsyncSession persistence pending |
+| Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **WIP** | `dev` | None | Verified ingestion; 10,000-event deduplication; process-local persistence; real triage handoff pending |
+| Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STABLE** | `dev` | Explicit SIM- demo records | Local scenarios; preserves other owners' triage interface |
+| PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **STABLE** | `dev` | Marked simulated responses | Real Sandbox OAuth verified; capture resolution, refund idempotency, note bounding, and 33 unit tests passing |
+| AI Agent | `backend/app/engine/agent.py` | AI Dev | **STABLE** | `dev` | N/A | Gemini 2.0 Flash structured outputs + deterministic heuristic fallback engine |
+| EV Calculator | `backend/app/engine/ev_calculator.py` | AI Dev | **STABLE** | `dev` | N/A | Pure math EV formula, break-even probability, and boundary validation |
+| RAG Store | `backend/app/engine/rag_store.py` | AI Dev | **STABLE** | `dev` | N/A | Elasticsearch hybrid (BM25 + kNN) with NumPy dense vector cosine similarity fallback |
 
-## PayPal Delivery and Acceptance Status (2026-10-30)
+## PayPal Delivery and Acceptance Status (2026-10-31)
 
 Implementation is available on `feat/paypal-integration` in [PR #5](https://github.com/Rohank3/sentin-ai/pull/5)
-targeting `dev`. WIP for the client and webhook modules means implementation is
-present but real end-to-end acceptance and shared integration are incomplete.
+merged into `dev`. WIP for webhook modules means signature verification and deduplication
+are operational, but real automated triage execution and durable persistence are pending.
+The client is verified with 33 unit tests covering timeouts, idempotency, and reconciliation.
 The simulator's STABLE status applies to local scenario injection only.
 
 | Capability | Evidence / status |
@@ -71,18 +72,30 @@ or webhook registration was created. `backend/.env` contains privately supplied
 team configuration and is Git-ignored. Do not copy secrets into contracts, tests,
 PR descriptions, or examples. [Setup and acceptance runbook](../backend/docs/paypal-integration.md).
 
+## Frontend Grid & AG Studio Delivery Status (2026-11-06)
+
+Implemented on `feat/ag-studio-integration` in [PR #6](https://github.com/Rohank3/sentin-ai/pull/6)
+merged into `dev`. All components compile cleanly with zero type errors in production build.
+
+| Component | Status | Features Delivered |
+|---|---|---|
+| `DisputeStudio.tsx` | **STABLE** | AG Studio React and AG Grid integration, custom status/confidence badges, multi-attribute filtering, concurrency-guarded actions |
+| `DisputeDetailDrawer.tsx` | **STABLE** | 1,169-line slide-over inspection drawer: PoD delivery logs, merchant return policies, EV arbitration breakdown, audit trail, manual action dispatchers |
+| `DisputeAnalyticsStudio.tsx` | **STABLE** | 323-line visual risk matrix, portfolio exposure charts, and arbitration win rate telemetry |
+
 ## Frontend Modules
 
 | Module | File Path | Owner | Status | Branch | Stub Returns | Notes |
 |---|---|---|---|---|---|---|
-| Constants | `frontend/src/lib/constants.ts` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | `APP_NAME`, `API_BASE_URL` |
-| API Client | `frontend/src/lib/api.ts` | Tech Lead | **STABLE** | `feat/core-scaffold` | N/A | Typed fetch wrappers |
-| Layout | `frontend/src/app/layout.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Basic shell | Root layout with Tailwind |
-| Page | `frontend/src/app/page.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Static layout | Main Command Center |
-| Dispute Studio | `frontend/src/components/DisputeStudio.tsx` | Frontend Grid | **STUB** | `feat/frontend-grid` | Static table | AG Studio integration |
-| Detail Drawer | `frontend/src/components/DisputeDetailDrawer.tsx` | Frontend Grid | **STUB** | `feat/frontend-grid` | Placeholder drawer | Evidence + AI reasoning |
-| Stats Overview | `frontend/src/components/StatsOverview.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Hardcoded numbers | Dashboard metrics |
-| Demo Control Bar | `frontend/src/components/DemoControlBar.tsx` | Frontend UX | **STUB** | `feat/frontend-ux` | Console.log | Scenario injection buttons |
+| Constants | `frontend/src/lib/constants.ts` | Tech Lead | **STABLE** | `dev` | N/A | `APP_NAME`, `API_BASE_URL` |
+| API Client | `frontend/src/lib/api.ts` | Tech Lead | **STABLE** | `dev` | N/A | Typed fetch wrappers with error handling |
+| Layout | `frontend/src/app/layout.tsx` | Frontend UX | **STABLE** | `dev` | N/A | Modern root shell with Tailwind, brand header & navigation |
+| Page | `frontend/src/app/page.tsx` | Frontend UX | **STABLE** | `dev` | N/A | Main Command Center integrating stats, injector, studio, and drawer |
+| Dispute Studio | `frontend/src/components/DisputeStudio.tsx` | Frontend Grid | **STABLE** | `dev` | N/A | AG Studio React grid, custom cell renderers, filter chips, concurrency guards |
+| Detail Drawer | `frontend/src/components/DisputeDetailDrawer.tsx` | Frontend Grid | **STABLE** | `dev` | N/A | 1,169-line inspection drawer with EV comparison, policy citations, timeline audit log |
+| Analytics Studio | `frontend/src/components/DisputeAnalyticsStudio.tsx` | Frontend Grid | **STABLE** | `dev` | N/A | Visual risk matrix and portfolio exposure distribution |
+| Stats Overview | `frontend/src/components/StatsOverview.tsx` | Frontend UX | **STABLE** | `dev` | N/A | Protected capital, exposure, win rate, autonomy ratio cards with loading skeletons |
+| Demo Control Bar | `frontend/src/components/DemoControlBar.tsx` | Frontend UX | **STABLE** | `dev` | N/A | 1-Click live scenario injector connected to `/api/simulate` |
 
 ## Infrastructure
 
