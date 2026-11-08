@@ -2,13 +2,21 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-11-08] Reconcile Frontend UX Delivery into Dev Baseline
+- Merged `feat/frontend-ux` into `dev` baseline, completing Role 5 and Checkpoint 4.
+- Delivered high-contrast Stripe/Ramp executive fintech light theme with official PayPal Blue accents.
+- Elevated `StatsOverview.tsx` with capital protected, active exposure, arbitration win rate, autonomy velocity, and EV formula modal.
+- Implemented full 6-scenario PayPal dispute simulation suite with custom judge test bench in `DemoControlBar.tsx`.
+- Added multi-merchant store selector, live 8s auto-polling webhook stream, and offline mock fallbacks in `page.tsx`.
+- Retained full AG Studio and AG Grid matrix integration (`DisputeStudio.tsx`, `DisputeDetailDrawer.tsx`, `DisputeAnalyticsStudio.tsx`).
+
 ## [2026-11-08] Merge AI Engine, AG Studio, and Sandbox Integration into Dev Baseline
 - Reconcile accidental PR #7 merge to `main` with `dev` integration baseline.
 - `agent.py`: Integrated Google Gemini 2.0 Flash structured outputs using `google-genai` SDK and `AIDecision` Pydantic response schema; hardened with platform autonomy guardrails and comprehensive deterministic risk heuristics.
 - `ev_calculator.py`: Enforced mathematically exact EV formulation, added `break_even_probability` analytical helper, input clamping, and partial settlement concession support.
 - `rag_store.py`: Built dual-mode hybrid search engine combining Elasticsearch 8.x (BM25 keyword + dense vector kNN) with a zero-dependency in-memory NumPy dense vector cosine similarity fallback; synced with seed fixtures (`policies.json`, `carriers.json`, `customers.json`).
 - `DisputeStudio.tsx`, `DisputeDetailDrawer.tsx`, and `DisputeAnalyticsStudio.tsx`: Retained full AG Studio and AG Grid matrix integration with custom cell renderers and comprehensive slide-over inspection drawer.
-- Unit test suite: 54/54 backend unit tests passing (`test_ai_engine.py`, `test_paypal_integration.py`, `test_contracts_and_schemas.py`).
+- Unit test suite: 62 backend unit tests passing (`test_ai_engine.py`, `test_paypal_integration.py`, `test_contracts_and_schemas.py`).
 
 ## [2026-11-07] Reconcile contracts, synchronize AG Studio grid, and prepare Milestone releases
 - Reconcile `MODULES.md` with PR #6 (`feat/ag-studio-integration`) merge: elevate `DisputeStudio.tsx`, `DisputeDetailDrawer.tsx`, and `DisputeAnalyticsStudio.tsx` to STABLE.
@@ -21,7 +29,7 @@ All interface modifications, schema migrations, and architecture pivots must be 
 - `ev_calculator.py`: Enforced mathematically exact EV formulation, added `break_even_probability` analytical helper, input clamping, and partial settlement concession support.
 - `rag_store.py`: Built dual-mode hybrid search engine combining Elasticsearch 8.x (BM25 keyword + dense vector kNN) with a zero-dependency in-memory NumPy dense vector cosine similarity fallback; synced with seed fixtures (`policies.json`, `carriers.json`, `customers.json`).
 - `agent.py`: Integrated Google Gemini 2.0 Flash structured outputs using `google-genai` SDK and `AIDecision` Pydantic response schema; hardened with platform autonomy guardrails and comprehensive deterministic risk heuristics.
-- Added comprehensive unit test suite in `backend/tests/test_ai_engine.py` (21 tests covering math, vector retrieval, and claims agent scenarios; 54 total backend tests passing).
+- Added comprehensive unit test suite in `backend/tests/test_ai_engine.py` (21 tests covering math, vector retrieval, and claims agent scenarios; 62 total backend tests passing).
 - Promoted `agent.py`, `ev_calculator.py`, and `rag_store.py` to `STABLE` in `MODULES.md`.
 
 ## [2026-10-31] Integrate dev sandbox setup into PayPal feature branch
