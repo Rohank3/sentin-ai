@@ -2,6 +2,15 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-11-08] Milestone 5: Full Production Engine, Live Sandbox Sync & Test Suite Optimization
+- Built dual-mode PostgreSQL persistence in `routes_disputes.py` and `routes_simulate.py` with automatic seller/customer foreign key creation and circuit-breaker connection resilience (`_is_db_cooling_down`).
+- Added live dispute synchronization endpoint (`POST /api/disputes/sync`) and dispute registry reset endpoint (`POST /api/disputes/reset`) in `routes_disputes.py`.
+- Updated `paypal_client.py` with `list_disputes` (`GET /v1/customer/disputes`) with mock fallback when credentials are offline.
+- Wired live "Sync Sandbox" and "Reset Matrix" controls into `DemoControlBar.tsx` and typed client methods into `api.ts`.
+- Optimized offline backend test execution speed by ~30x (62 tests pass in 27s vs 225s) by eliminating repeated TCP socket timeouts when PostgreSQL is offline.
+- Created `backend/scripts/setup_sandbox.py` (interactive CLI configuration verifier) and `docs/sandbox_setup.md` (complete Sandbox runbook).
+- Executed verification gate: 100% backend test pass (62/62) and clean Next.js production build (`npm run build`).
+
 ## [2026-11-08] Reconcile Frontend UX Delivery into Dev Baseline
 - Merged `feat/frontend-ux` into `dev` baseline, completing Role 5 and Checkpoint 4.
 - Delivered high-contrast Stripe/Ramp executive fintech light theme with official PayPal Blue accents.

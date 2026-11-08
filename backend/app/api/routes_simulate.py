@@ -12,8 +12,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.schemas import SimulateRequest, SimulateResponse
-# Consumes STUB: routes_disputes repository and triage pipeline.
-from app.api.routes_disputes import SEED_DISPUTES, triage_dispute
+from app.api.routes_disputes import SEED_DISPUTES, triage_dispute, _save_dispute_to_db
 
 router = APIRouter(prefix="/api", tags=["Simulation"])
 
@@ -104,8 +103,9 @@ async def simulate_dispute_scenario(req: SimulateRequest):
         "updated_at": utc_now()
     }
 
-    # Store in memory repository
+    # Store in memory repository and database
     SEED_DISPUTES[new_id] = dispute_record
+    await _save_dispute_to_db(dispute_record)
 
     # If auto_triage is requested, evaluate immediately
     triage_status = "Triage not requested."
@@ -120,6 +120,7 @@ async def simulate_dispute_scenario(req: SimulateRequest):
                 "action": "TRIAGE_FAILED", "details": "Demo created; triage unavailable. Retry triage from the dashboard.",
                 "timestamp": utc_now()
             })
+            await _save_dispute_to_db(dispute_record)
             triage_status = "Triage unavailable; retry from the dashboard."
 
     return SimulateResponse(

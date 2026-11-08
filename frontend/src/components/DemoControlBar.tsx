@@ -14,6 +14,8 @@ import {
   X,
   Play,
   Activity,
+  RefreshCw,
+  RotateCcw,
 } from "lucide-react";
 import { api, SimulateRequest, SimulateResponse } from "@/lib/api";
 
@@ -40,6 +42,8 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
   onSelectDisputeId,
 }) => {
   const [injecting, setInjecting] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [lastResponse, setLastResponse] = useState<SimulateResponse | null>(null);
   const [activeTab, setActiveTab] = useState<"ALL" | "AUTO" | "RISK">("ALL");
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -156,6 +160,58 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
     return true;
   });
 
+  const handleSyncPayPal = async () => {
+    setIsSyncing(true);
+    setLastResponse(null);
+    try {
+      const res = await api.syncPayPalDisputes();
+      setLastResponse({
+        dispute_id: "",
+        paypal_dispute_id: "SANDBOX_SYNC",
+        scenario_type: "INR_WITH_TRACKING",
+        status: "SUCCESS",
+        message: `Synced ${res.synced_count} dispute(s) from PayPal Sandbox (${res.new_count} newly imported). Total disputes in matrix: ${res.total_disputes}.`,
+      });
+      onScenarioInjected();
+    } catch {
+      setLastResponse({
+        dispute_id: "",
+        paypal_dispute_id: "SYNC_FAILED",
+        scenario_type: "INR_WITH_TRACKING",
+        status: "FAILED",
+        message: "Failed to sync PayPal Sandbox disputes. Check API credentials or server status.",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleResetDisputes = async () => {
+    setIsResetting(true);
+    setLastResponse(null);
+    try {
+      const res = await api.resetDisputes(false);
+      setLastResponse({
+        dispute_id: "",
+        paypal_dispute_id: "MATRIX_RESET",
+        scenario_type: "INR_WITH_TRACKING",
+        status: "SUCCESS",
+        message: `Dispute matrix reset to baseline seed dataset (${res.total_disputes} disputes).`,
+      });
+      onScenarioInjected();
+    } catch {
+      setLastResponse({
+        dispute_id: "",
+        paypal_dispute_id: "RESET_FAILED",
+        scenario_type: "INR_WITH_TRACKING",
+        status: "FAILED",
+        message: "Failed to reset dispute database.",
+      });
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleInject = async (
     scenarioType: SimulateRequest["scenario_type"],
     label: string,
@@ -257,8 +313,30 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
           </div>
         </div>
 
-        {/* Action Controls: Tabs & Custom Trigger */}
+        {/* Action Controls: Sandbox Sync, Reset, Custom Trigger & Filters */}
         <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          {/* Sync PayPal Sandbox Button */}
+          <button
+            onClick={handleSyncPayPal}
+            disabled={isSyncing || injecting !== null}
+            title="Fetch and ingest live dispute cases from PayPal Sandbox API"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-200 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+            <span>{isSyncing ? "Syncing..." : "Sync Sandbox"}</span>
+          </button>
+
+          {/* Reset Disputes Button */}
+          <button
+            onClick={handleResetDisputes}
+            disabled={isResetting || injecting !== null}
+            title="Reset disputes to initial seed fixtures"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? "animate-spin" : ""}`} />
+            <span>{isResetting ? "Resetting..." : "Reset"}</span>
+          </button>
+
           {/* Custom Simulator Button */}
           <button
             onClick={() => setShowCustomModal(true)}
@@ -358,7 +436,7 @@ export const DemoControlBar: React.FC<DemoControlBarProps> = ({
             <button
               key={s.id}
               onClick={() => handleInject(s.id, s.label, s.amount)}
-              disabled={injecting !== null}
+              disabled={injecting !== null || isSyncing || isResetting}
               className="group relative flex flex-col justify-between p-3.5 rounded-xl bg-slate-50/70 hover:bg-white active:bg-slate-100 border border-slate-200 hover:border-[#0070ba]/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0070ba] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 text-left min-h-[140px]"
             >
               <div>

@@ -5,6 +5,7 @@ buyer profiles, and marketplace sellers.
 """
 
 import json
+import uuid
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -47,18 +48,19 @@ def get_seed_sellers() -> List[Dict[str, Any]]:
 async def seed_database(session: Any) -> Dict[str, int]:
     """Populate database with default seed entities idempotently.
 
-    Checks seller and customer fixtures independently using stable primary keys,
+    Checks seller, customer, and dispute fixtures independently using stable primary keys,
     inserting only records that are currently missing.
 
     Args:
         session: SQLAlchemy AsyncSession instance.
 
     Returns:
-        Dictionary reporting count of newly seeded sellers and customers.
+        Dictionary reporting count of newly seeded sellers, customers, and disputes.
     """
-    from app.models.db_models import Seller, Customer
+    from app.models.db_models import Seller, Customer, Dispute, AuditLog
+    from app.api.routes_disputes import SEED_DISPUTES
 
-    stats = {"sellers": 0, "customers": 0}
+    stats = {"sellers": 0, "customers": 0, "disputes": 0}
     try:
         for s_data in get_seed_sellers():
             existing_seller = await session.get(Seller, s_data["id"])
@@ -89,7 +91,42 @@ async def seed_database(session: Any) -> Dict[str, int]:
                 session.add(customer)
                 stats["customers"] += 1
 
-        if stats["sellers"] > 0 or stats["customers"] > 0:
+        # Flush sellers and customers so foreign keys are satisfied
+        await session.flush()
+
+        for d_id, d_data in SEED_DISPUTES.items():
+            existing_dispute = await session.get(Dispute, d_id)
+            if not existing_dispute:
+                dispute = Dispute(
+                    id=d_data["id"],
+                    paypal_dispute_id=d_data["paypal_dispute_id"],
+                    seller_id=d_data["seller_id"],
+                    customer_id=d_data["customer_id"],
+                    amount=d_data["amount"],
+                    currency=d_data.get("currency", "USD"),
+                    reason=d_data["reason"],
+                    status=d_data.get("status", "OPEN"),
+                    ai_decision=d_data.get("ai_decision"),
+                    ev_breakdown=d_data.get("ev_breakdown"),
+                    evidence_snapshot=d_data.get("evidence"),
+                    auto_executed=d_data.get("auto_executed", False),
+                    action_taken=d_data.get("action_taken"),
+                    created_at=d_data.get("created_at"),
+                    updated_at=d_data.get("updated_at"),
+                )
+                session.add(dispute)
+                for log_item in d_data.get("audit_log", []):
+                    audit = AuditLog(
+                        id=str(uuid.uuid4()),
+                        dispute_id=d_data["id"],
+                        action=log_item["action"],
+                        details=log_item["details"],
+                        timestamp=log_item.get("timestamp"),
+                    )
+                    session.add(audit)
+                stats["disputes"] += 1
+
+        if any(v > 0 for v in stats.values()):
             await session.commit()
     except Exception:
         await session.rollback()
