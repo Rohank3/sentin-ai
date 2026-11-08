@@ -140,6 +140,28 @@ class PayPalClient:
                           reason="MERCHANDISE_OR_SERVICE_NOT_RECEIVED", dispute_life_cycle_stage="CHARGEBACK")
         return result
 
+    async def list_disputes(self, seller_id: str = "default", dispute_state: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch real disputes list from PayPal Sandbox account."""
+        path = "/v1/customer/disputes"
+        if dispute_state:
+            path += f"?dispute_state={dispute_state}"
+        token = await self.get_access_token(seller_id=seller_id)
+        if token == MOCK_TOKEN:
+            return {"items": [], "total_items": 0, "simulated": True}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.base_url}{path}", headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+                return {"items": [], "total_items": 0, "error": resp.text}
+        except Exception as e:
+            return {"items": [], "total_items": 0, "error": str(e), "simulated": True}
+
     async def resolve_capture_id(self, dispute_id: str, seller_id: str = "default") -> str:
         """Verify a single disputed seller transaction is a Payments v2 capture."""
         _identifier(dispute_id)
