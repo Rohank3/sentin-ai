@@ -124,6 +124,20 @@ export interface SellerListResponse {
   sellers: SellerSummary[];
 }
 
+export interface SyncDisputesResponse {
+  status: string;
+  synced_count: number;
+  new_count: number;
+  total_disputes: number;
+  items: unknown[];
+}
+
+export interface ResetDisputesResponse {
+  status: string;
+  message: string;
+  total_disputes: number;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
@@ -247,6 +261,20 @@ class ApiService {
     return this.request<SimulateResponse>("/api/simulate", {
       method: "POST",
       body: JSON.stringify(scenario),
+    });
+  }
+
+  async syncPayPalDisputes(sellerId?: string): Promise<SyncDisputesResponse> {
+    const qs = sellerId ? `?seller_id=${encodeURIComponent(sellerId)}` : "";
+    return this.request<SyncDisputesResponse>(`/api/disputes/sync${qs}`, {
+      method: "POST",
+    });
+  }
+
+  async resetDisputes(clearAll: boolean = false): Promise<ResetDisputesResponse> {
+    const qs = clearAll ? "?clear_all=true" : "";
+    return this.request<ResetDisputesResponse>(`/api/disputes/reset${qs}`, {
+      method: "POST",
     });
   }
 }
