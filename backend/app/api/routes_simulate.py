@@ -4,12 +4,15 @@ Provides 1-click test scenarios enabling reliable, instantaneous demo pitches
 with full autonomous triage, EV calculation, and PayPal integration.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+import math
+import logging
 from typing import Dict, Any
 from datetime import datetime, timezone
 import uuid
 
 from app.models.schemas import SimulateRequest, SimulateResponse
+# Consumes STUB: routes_disputes repository and triage pipeline.
 from app.api.routes_disputes import SEED_DISPUTES, triage_dispute
 
 router = APIRouter(prefix="/api", tags=["Simulation"])
@@ -61,12 +64,14 @@ async def simulate_dispute_scenario(req: SimulateRequest):
     """Instantly inject a dispute scenario into the risk command center."""
     scenario_cfg = SCENARIO_CONFIGS.get(req.scenario_type, SCENARIO_CONFIGS["INR_WITH_TRACKING"])
     
-    amount = req.amount if req.amount and req.amount != 149.99 else scenario_cfg["amount"]
-    reason = req.reason if req.reason and req.reason != "ITEM_NOT_RECEIVED" else scenario_cfg["reason"]
-    customer_email = req.customer_email if req.customer_email and req.customer_email != "buyer.sandbox@example.com" else scenario_cfg["customer_email"]
+    amount = req.amount if "amount" in req.model_fields_set else scenario_cfg["amount"]
+    reason = req.reason if "reason" in req.model_fields_set else scenario_cfg["reason"]
+    customer_email = req.customer_email if "customer_email" in req.model_fields_set else scenario_cfg["customer_email"]
+    if not math.isfinite(amount):
+        raise HTTPException(400, "Simulation amount must be finite.")
 
-    new_id = f"disp-{uuid.uuid4().hex[:6]}"
-    pp_dispute_id = f"PP-D-{uuid.uuid4().hex[:8].upper()}"
+    new_id = f"disp-{uuid.uuid4().hex}"
+    pp_dispute_id = f"SIM-{uuid.uuid4().hex.upper()}"
 
     dispute_record: Dict[str, Any] = {
         "id": new_id,
@@ -103,13 +108,24 @@ async def simulate_dispute_scenario(req: SimulateRequest):
     SEED_DISPUTES[new_id] = dispute_record
 
     # If auto_triage is requested, evaluate immediately
+    triage_status = "Triage not requested."
     if req.auto_triage:
-        await triage_dispute(new_id)
+        try:
+            await triage_dispute(new_id)
+            triage_status = "Triage completed."
+        except Exception:
+            logging.getLogger(__name__).warning("Simulation triage failed for %s", new_id)
+            dispute_record.update(auto_executed=False, action_taken=None, status="OPEN")
+            dispute_record["audit_log"].append({
+                "action": "TRIAGE_FAILED", "details": "Demo created; triage unavailable. Retry triage from the dashboard.",
+                "timestamp": utc_now()
+            })
+            triage_status = "Triage unavailable; retry from the dashboard."
 
     return SimulateResponse(
         dispute_id=new_id,
         paypal_dispute_id=pp_dispute_id,
         scenario_type=req.scenario_type,
         status="CREATED",
-        message=f"Dispute scenario '{req.scenario_type}' injected and evaluated successfully."
+        message=f"Local simulation created. {triage_status} No PayPal case was created."
     )

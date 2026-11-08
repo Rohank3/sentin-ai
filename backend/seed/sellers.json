@@ -1,0 +1,16 @@
+[
+  {
+    "id": "seller_acme",
+    "name": "Apex Electronics",
+    "email": "disputes@apexelectronics.com",
+    "paypal_client_id": "sb-apex-merchant-id",
+    "paypal_client_secret": null
+  },
+  {
+    "id": "seller_nexus",
+    "name": "Nexus Direct Store",
+    "email": "risk@nexusdirect.com",
+    "paypal_client_id": "sb-nexus-merchant-id",
+    "paypal_client_secret": null
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "order_id": "ORD-98213",
+    "tracking_number": "1Z999AA10123456784",
+    "carrier": "UPS",
+    "status": "DELIVERED",
+    "delivery_date": "2026-10-23T14:32:00Z",
+    "delivery_notes": "Left at front door. Signature obtained: J. DOE",
+    "signature_confirmed": true
+  },
+  {
+    "order_id": "ORD-54129",
+    "tracking_number": "9400111899562548962145",
+    "carrier": "USPS",
+    "status": "IN_TRANSIT",
+    "delivery_date": null,
+    "delivery_notes": "Delayed due to weather alert at sorting facility",
+    "signature_confirmed": false
+  }
+]

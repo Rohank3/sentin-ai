@@ -1,0 +1,23 @@
+[
+  {
+    "id": "pol_inr_1",
+    "seller_id": "seller_acme",
+    "policy_type": "DELIVERY",
+    "title": "Standard Delivery & Proof of Fulfillment Policy",
+    "content": "Orders confirmed delivered by carrier tracking with delivery timestamp and geo-coordinates/signature are protected under Merchant Seller Protection. Claims for 'Item Not Received' with carrier status 'Delivered' will be contested by submitting carrier tracking information and fulfillment logs within 10 days."
+  },
+  {
+    "id": "pol_snad_1",
+    "seller_id": "seller_acme",
+    "policy_type": "RETURNS",
+    "title": "Significantly Not As Described (SNAD) Return Protocol",
+    "content": "Items claimed as defective or not as described require buyer to initiate a return within 14 days of receipt in original condition. Merchant will offer replacement or partial refund upon inspection. For items under $25, instant replacement is preferred over return shipping costs."
+  },
+  {
+    "id": "pol_fraud_1",
+    "seller_id": "seller_acme",
+    "policy_type": "FRAUD_MITIGATION",
+    "title": "Abuse & Repeat Claimant Handling Policy",
+    "content": "Accounts demonstrating 2 or more unresolved dispute claims within a 90-day rolling window or dispute-to-order ratio exceeding 15% are flagged for manual security review. Automated concessions are denied for flagged accounts."
+  }
+]
