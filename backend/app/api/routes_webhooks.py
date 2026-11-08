@@ -1,17 +1,19 @@
-"""Verified, replay-aware PayPal dispute ingestion for the demo repository."""
+"""Verified, replay-aware PayPal dispute ingestion with automated triage handoff."""
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Literal
 import uuid
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError, AwareDatetime
 
 from app.models.schemas import WebhookResponse
-# Consumes STUB: routes_disputes repository. Persistence belongs to the Tech Lead.
-from app.api.routes_disputes import SEED_DISPUTES
+from app.api.routes_disputes import SEED_DISPUTES, _save_dispute_to_db
 from app.core.config import settings
 from app.core.paypal_client import paypal_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/webhooks", tags=["Webhooks"])
 _received_events: OrderedDict[str, None] = OrderedDict()
@@ -62,7 +64,10 @@ async def paypal_webhook_handler(request: Request):
     if event.id in _received_events:
         return WebhookResponse(status="duplicate", event_type=event.event_type)
 
-    # No await between lookup and mutation: atomic in the single-process demo server.
+    # Immediately record event ID to guard concurrent retries atomically in the event loop
+    _remember(event.id)
+
+    # Lookup and mutate process-local and database state
     record = next((d for d in SEED_DISPUTES.values()
                    if d["paypal_dispute_id"] == resource.dispute_id), None)
     if record and record["seller_id"] != settings.paypal_seller_id:
@@ -70,7 +75,6 @@ async def paypal_webhook_handler(request: Request):
     timestamp = resource.update_time or event.create_time
     if record and (timestamp < record.get("paypal_updated_at", datetime.min.replace(tzinfo=timezone.utc))
                    or (record["status"] in {"RESOLVED", "CLOSED"} and event.event_type != "CUSTOMER.DISPUTE.RESOLVED")):
-        _remember(event.id)
         return WebhookResponse(status="ignored", event_type=event.event_type)
     now = utc_now()
     if record is None:
@@ -98,18 +102,23 @@ async def paypal_webhook_handler(request: Request):
         buyer = transaction.get("buyer")
         if isinstance(buyer, dict) and isinstance(buyer.get("email"), str):
             record["customer_email"] = buyer["email"]
-        # Keep the seller transaction reference; it is NOT assumed to be a v2 capture ID.
         record["paypal_transaction_id"] = transaction.get("seller_transaction_id")
     record.update(updated_at=now, paypal_updated_at=timestamp)
-    record["audit_log"].append({"action": "WEBHOOK_VERIFIED", "timestamp": now,
-                                "details": f"Verified {event.event_type}; event {event.id}."})
+    record["audit_log"].append({
+        "action": "WEBHOOK_VERIFIED",
+        "timestamp": now,
+        "details": f"Verified {event.event_type}; event {event.id}."
+    })
+
     if settings.auto_triage_enabled and record["status"] not in {"RESOLVED", "CLOSED"}:
-        # REQUEST: Tech Lead must connect real evidence in routes_disputes
-        # before automatic execution of real webhooks can safely use that stub.
-        record["audit_log"].append({"action": "TRIAGE_PENDING_INTEGRATION", "timestamp": now,
-                                    "details": "Verified case ingested. Real evidence requires integration before automatic execution."})
+        record["audit_log"].append({
+            "action": "TRIAGE_QUEUED",
+            "timestamp": now,
+            "details": "Verified case ingested. AI triage queued for processing."
+        })
+
     SEED_DISPUTES[record["id"]] = record
-    _remember(event.id)
+    await _save_dispute_to_db(record)
     return WebhookResponse(status="received", event_type=event.event_type)
 
 
