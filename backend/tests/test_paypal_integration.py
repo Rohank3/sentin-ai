@@ -506,6 +506,55 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             refund.assert_awaited_once()
             self.assertNotIn("_triage_in_progress", record)
 
+    async def test_payment_capture_refunded_webhook_resolves_dispute(self):
+        record = await self._refund_case()
+        record["paypal_transaction_id"] = "TX-CAPTURE-999"
+        refund_event = {
+            "id": "EV-REFUND-1",
+            "event_type": "PAYMENT.CAPTURE.REFUNDED",
+            "create_time": "2026-10-26T12:00:00Z",
+            "resource": {
+                "id": "REF-999",
+                "capture_id": "TX-CAPTURE-999",
+                "status": "COMPLETED",
+                "amount": {"value": "42.50", "currency_code": "USD"},
+            },
+        }
+        with patch.object(webhooks.paypal_client, "verify_webhook_signature", AsyncMock(return_value=True)):
+            response = await self.http.post("/api/webhooks/paypal", json=refund_event)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "received")
+            self.assertEqual(record["status"], "RESOLVED")
+            self.assertEqual(record["action_taken"], "REFUND")
+            self.assertTrue(any(e["action"] == "PAYMENT_REFUNDED_WEBHOOK" for e in record["audit_log"]))
+
+    async def test_payment_sale_reversed_webhook_marks_under_review(self):
+        record = await self._refund_case()
+        record["paypal_transaction_id"] = "TX-SALE-888"
+        reversed_event = {
+            "id": "EV-REV-1",
+            "event_type": "PAYMENT.SALE.REVERSED",
+            "create_time": "2026-10-26T12:00:00Z",
+            "resource": {
+                "id": "TX-SALE-888",
+                "state": "reversed",
+                "amount": {"total": "42.50", "currency": "USD"},
+            },
+        }
+        with patch.object(webhooks.paypal_client, "verify_webhook_signature", AsyncMock(return_value=True)):
+            response = await self.http.post("/api/webhooks/paypal", json=reversed_event)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "received")
+            self.assertEqual(record["status"], "UNDER_REVIEW")
+            self.assertTrue(any(e["action"] == "PAYMENT_REVERSED_WEBHOOK" for e in record["audit_log"]))
+
+    async def test_webhook_dispatches_background_triage_audit(self):
+        with patch.object(webhooks.paypal_client, "verify_webhook_signature", AsyncMock(return_value=True)):
+            response = await self.http.post("/api/webhooks/paypal", json=self.event)
+            self.assertEqual(response.status_code, 200)
+            record = next(iter(webhooks.SEED_DISPUTES.values()))
+            self.assertTrue(any(e["action"] == "TRIAGE_QUEUED" for e in record["audit_log"]))
+
 
 if __name__ == "__main__":
     unittest.main()

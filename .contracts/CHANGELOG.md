@@ -2,6 +2,21 @@
 
 All interface modifications, schema migrations, and architecture pivots must be documented here with timestamps.
 
+## [2026-11-10] Milestone 5 Extension: AG Grid Enterprise License, SideBar/Export & Extended Webhook AI Triage
+- Configured AG Grid & AG Studio Pro Enterprise license key via gitignored `.env.local` (`NEXT_PUBLIC_AG_GRID_LICENSE_KEY`) and documented placeholder in `frontend/.env.example`.
+- Created `frontend/src/lib/agGridLicense.ts` to dynamically inject license credentials into `LicenseManager` and `AgStudioLicenseManager` and register `AllEnterpriseModule`.
+- Enhanced `DisputeStudio.tsx` with AG Grid Enterprise features:
+  - Added one-click "Export" button in the operations toolbar (`exportDataAsCsv`).
+  - Added collapsible Enterprise SideBar toggle with Columns and Filters tool panels.
+  - Enabled Enterprise Status Bar with aggregate row count, filtered row count, selected row count, and numerical aggregations.
+  - Enabled range selection (`enableRangeSelection: true`).
+- Upgraded `backend/app/api/routes_webhooks.py`:
+  - Implemented asynchronous autonomous AI triage execution via FastAPI `BackgroundTasks` (`_execute_webhook_triage`) on incoming dispute events.
+  - Extended webhook event support to cover payment lifecycle webhooks: `PAYMENT.CAPTURE.REFUNDED` (marks linked dispute `RESOLVED` with refund action) and `PAYMENT.SALE.REVERSED` (marks linked dispute `UNDER_REVIEW`).
+  - Added 3 new regression tests in `backend/tests/test_paypal_integration.py` (total 36 tests passing in module, 65 tests total across backend).
+- Promoted `routes_webhooks.py` to `STABLE` in `MODULES.md`.
+- Verified gates: 100% backend unit test pass (65/65), backend `py_compile` pass, and clean Next.js production build (`npm run build`).
+
 ## [2026-11-08] Milestone 5: Full Production Engine, Live Sandbox Sync & Test Suite Optimization
 - Built dual-mode PostgreSQL persistence in `routes_disputes.py` and `routes_simulate.py` with automatic seller/customer foreign key creation and circuit-breaker connection resilience (`_is_db_cooling_down`).
 - Added live dispute synchronization endpoint (`POST /api/disputes/sync`) and dispute registry reset endpoint (`POST /api/disputes/reset`) in `routes_disputes.py`.

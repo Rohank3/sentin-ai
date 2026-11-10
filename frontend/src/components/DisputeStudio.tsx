@@ -15,6 +15,8 @@ import {
   ChevronRight,
   AlertCircle,
   BarChart3,
+  Download,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   AllCommunityModule,
@@ -29,9 +31,10 @@ import { AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import { DisputeSummary, AIDecision } from "@/lib/api";
 import type { AgReportState } from "ag-studio";
 import { DisputeAnalyticsStudio } from "./DisputeAnalyticsStudio";
+import { initAgEnterprise } from "@/lib/agGridLicense";
 
-// Register AG Grid Community modules
-ModuleRegistry.registerModules([AllCommunityModule]);
+// Initialize AG Grid Enterprise & AG Studio licenses and modules
+initAgEnterprise();
 
 // Scoped Quartz Dark Theme configured for Sentin AI Slate / PayPal Blue palette
 const sentinDarkTheme = themeQuartz
@@ -113,6 +116,23 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
   const [triagingId, setTriagingId] = useState<string | null>(null);
   const [displayedCount, setDisplayedCount] = useState<number>(disputes.length);
   const [studioReportState, setStudioReportState] = useState<AgReportState | undefined>(undefined);
+  const [sideBarOpen, setSideBarOpen] = useState(false);
+
+  const handleExportCsv = useCallback(() => {
+    if (gridRef.current?.api) {
+      gridRef.current.api.exportDataAsCsv({
+        fileName: `sentin-ai-disputes-${new Date().toISOString().slice(0, 10)}.csv`,
+      });
+    }
+  }, []);
+
+  const handleToggleSideBar = useCallback(() => {
+    if (gridRef.current?.api) {
+      const nextState = !sideBarOpen;
+      gridRef.current.api.setSideBarVisible(nextState);
+      setSideBarOpen(nextState);
+    }
+  }, [sideBarOpen]);
 
   const statusOptions = [
     { id: "ALL", label: "All Disputes" },
@@ -593,17 +613,46 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
               ))}
             </div>
 
-            {/* Quick Search Input */}
-            <div className="relative sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search claims, merchants, buyers..."
-                aria-label="Search claims, merchants, buyers"
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-950 border border-slate-700/80 rounded-lg text-white placeholder-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              />
+            {/* Quick Search & Enterprise Actions */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search claims, merchants, buyers..."
+                  aria-label="Search claims, merchants, buyers"
+                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-950 border border-slate-700/80 rounded-lg text-white placeholder-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                />
+              </div>
+
+              {/* Enterprise Export Button */}
+              <button
+                onClick={handleExportCsv}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0"
+                title="Export filtered dispute matrix to CSV"
+                aria-label="Export dispute matrix to CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Export</span>
+              </button>
+
+              {/* Enterprise SideBar Toggle */}
+              <button
+                onClick={handleToggleSideBar}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 shrink-0 ${
+                  sideBarOpen
+                    ? "bg-blue-600 text-white border-blue-500"
+                    : "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700"
+                }`}
+                title="Toggle Enterprise Columns & Filters tool panels"
+                aria-label="Toggle Enterprise Columns and Filters tool panels"
+                aria-pressed={sideBarOpen}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Panels</span>
+              </button>
             </div>
           </div>
 
@@ -628,6 +677,34 @@ export const DisputeStudio: React.FC<DisputeStudioProps> = ({
               noRowsOverlayComponent={NoDisputesOverlay}
               loadingOverlayComponent={LoadingDisputesOverlay}
               animateRows={true}
+              sideBar={{
+                toolPanels: [
+                  {
+                    id: "columns",
+                    labelDefault: "Columns",
+                    labelKey: "columns",
+                    iconKey: "columns",
+                    toolPanel: "agColumnsToolPanel",
+                  },
+                  {
+                    id: "filters",
+                    labelDefault: "Filters",
+                    labelKey: "filters",
+                    iconKey: "filter",
+                    toolPanel: "agFiltersToolPanel",
+                  },
+                ],
+                defaultToolPanel: "",
+              }}
+              statusBar={{
+                statusPanels: [
+                  { statusPanel: "agTotalRowCountComponent", align: "left" },
+                  { statusPanel: "agFilteredRowCountComponent", align: "left" },
+                  { statusPanel: "agSelectedRowCountComponent", align: "center" },
+                  { statusPanel: "agAggregationComponent", align: "right" },
+                ],
+              }}
+              enableRangeSelection={true}
             />
           </div>
         </>

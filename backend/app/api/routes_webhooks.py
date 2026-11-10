@@ -1,15 +1,15 @@
-"""Verified, replay-aware PayPal dispute ingestion with automated triage handoff."""
+"""Verified, replay-aware PayPal dispute & payment ingestion with automated triage handoff."""
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Literal
 import uuid
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel, Field, ValidationError, AwareDatetime
 
 from app.models.schemas import WebhookResponse
-from app.api.routes_disputes import SEED_DISPUTES, _save_dispute_to_db
+from app.api.routes_disputes import SEED_DISPUTES, _save_dispute_to_db, _triage_dispute
 from app.core.config import settings
 from app.core.paypal_client import paypal_client
 
@@ -17,7 +17,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/webhooks", tags=["Webhooks"])
 _received_events: OrderedDict[str, None] = OrderedDict()
-_SUPPORTED = {"CUSTOMER.DISPUTE.CREATED", "CUSTOMER.DISPUTE.UPDATED", "CUSTOMER.DISPUTE.RESOLVED"}
+
+_DISPUTE_EVENTS = {
+    "CUSTOMER.DISPUTE.CREATED",
+    "CUSTOMER.DISPUTE.UPDATED",
+    "CUSTOMER.DISPUTE.RESOLVED",
+}
+_PAYMENT_EVENTS = {
+    "PAYMENT.CAPTURE.REFUNDED",
+    "PAYMENT.SALE.REVERSED",
+}
+_SUPPORTED = _DISPUTE_EVENTS | _PAYMENT_EVENTS
 
 
 class _Event(BaseModel):
@@ -45,8 +55,38 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+async def _execute_webhook_triage(dispute_id: str):
+    """Background worker executing autonomous AI RAG triage and EV arbitration."""
+    dispute = SEED_DISPUTES.get(dispute_id)
+    if not dispute:
+        logger.warning("Background triage aborted: dispute %s not in memory", dispute_id)
+        return
+
+    if dispute.get("_triage_in_progress"):
+        logger.debug("Dispute %s triage already running; skipping", dispute_id)
+        return
+
+    dispute["_triage_in_progress"] = True
+    try:
+        logger.info("Executing background AI triage for dispute %s", dispute_id)
+        updated = await _triage_dispute(dispute)
+        SEED_DISPUTES[dispute_id] = updated
+        await _save_dispute_to_db(updated)
+        logger.info("Completed background AI triage for dispute %s", dispute_id)
+    except Exception as exc:
+        logger.warning("Background webhook triage notice for %s: %s", dispute_id, exc)
+        dispute["audit_log"].append({
+            "action": "TRIAGE_NOTICE",
+            "timestamp": utc_now(),
+            "details": f"Autonomous triage encountered notice: {str(exc)}"
+        })
+        await _save_dispute_to_db(dispute)
+    finally:
+        dispute.pop("_triage_in_progress", None)
+
+
 @router.post("/paypal", response_model=WebhookResponse)
-async def paypal_webhook_handler(request: Request):
+async def paypal_webhook_handler(request: Request, background_tasks: BackgroundTasks):
     """Reject unverified events before touching state; acknowledge retries safely."""
     try:
         body = await request.json()
@@ -57,15 +97,61 @@ async def paypal_webhook_handler(request: Request):
         raise HTTPException(401, "PayPal webhook signature verification failed.")
     if event.event_type not in _SUPPORTED:
         return WebhookResponse(status="ignored", event_type=event.event_type)
-    try:
-        resource = _Resource.model_validate(event.resource)
-    except ValidationError:
-        raise HTTPException(400, "Invalid PayPal dispute resource.") from None
     if event.id in _received_events:
         return WebhookResponse(status="duplicate", event_type=event.event_type)
 
     # Immediately record event ID to guard concurrent retries atomically in the event loop
     _remember(event.id)
+    now = utc_now()
+
+    # Handle Payment Lifecycle Events (Refunds & Reversals)
+    if event.event_type in _PAYMENT_EVENTS:
+        resource = event.resource or {}
+        resource_id = str(resource.get("id") or "")
+        parent_payment = str(resource.get("parent_payment") or "")
+        capture_id = str(resource.get("capture_id") or "")
+
+        # Find matching dispute in local cache
+        record = next(
+            (
+                d for d in SEED_DISPUTES.values()
+                if (d.get("paypal_transaction_id") and d.get("paypal_transaction_id") in {resource_id, parent_payment, capture_id})
+                or (d.get("paypal_refund_id") and d.get("paypal_refund_id") == resource_id)
+                or (d.get("paypal_dispute_id") and d.get("paypal_dispute_id") in {resource_id, parent_payment})
+            ),
+            None,
+        )
+
+        if record:
+            if event.event_type == "PAYMENT.CAPTURE.REFUNDED":
+                record["status"] = "RESOLVED"
+                record["action_taken"] = "REFUND"
+                record["updated_at"] = now
+                record["audit_log"].append({
+                    "action": "PAYMENT_REFUNDED_WEBHOOK",
+                    "timestamp": now,
+                    "details": f"PayPal confirmed capture refund {resource_id}. Dispute case marked RESOLVED."
+                })
+            elif event.event_type == "PAYMENT.SALE.REVERSED":
+                record["status"] = "UNDER_REVIEW"
+                record["updated_at"] = now
+                record["audit_log"].append({
+                    "action": "PAYMENT_REVERSED_WEBHOOK",
+                    "timestamp": now,
+                    "details": f"PayPal confirmed payment reversal for transaction {resource_id}."
+                })
+            SEED_DISPUTES[record["id"]] = record
+            await _save_dispute_to_db(record)
+        else:
+            logger.info("Ingested %s event %s without matching active dispute record", event.event_type, event.id)
+
+        return WebhookResponse(status="received", event_type=event.event_type)
+
+    # Handle Customer Dispute Events
+    try:
+        resource = _Resource.model_validate(event.resource)
+    except ValidationError:
+        raise HTTPException(400, "Invalid PayPal dispute resource.") from None
 
     # Lookup and mutate process-local and database state
     record = next((d for d in SEED_DISPUTES.values()
@@ -76,7 +162,7 @@ async def paypal_webhook_handler(request: Request):
     if record and (timestamp < record.get("paypal_updated_at", datetime.min.replace(tzinfo=timezone.utc))
                    or (record["status"] in {"RESOLVED", "CLOSED"} and event.event_type != "CUSTOMER.DISPUTE.RESOLVED")):
         return WebhookResponse(status="ignored", event_type=event.event_type)
-    now = utc_now()
+
     if record is None:
         if resource.dispute_amount is None or resource.reason is None:
             raise HTTPException(400, "A new dispute requires amount, currency and reason.")
@@ -114,8 +200,9 @@ async def paypal_webhook_handler(request: Request):
         record["audit_log"].append({
             "action": "TRIAGE_QUEUED",
             "timestamp": now,
-            "details": "Verified case ingested. AI triage queued for processing."
+            "details": "Verified case ingested. AI triage dispatched to background worker."
         })
+        background_tasks.add_task(_execute_webhook_triage, record["id"])
 
     SEED_DISPUTES[record["id"]] = record
     await _save_dispute_to_db(record)

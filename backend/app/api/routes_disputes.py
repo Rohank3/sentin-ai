@@ -542,7 +542,6 @@ async def _triage_dispute(dispute: Dict[str, Any]):
     # 4. Handle Autonomous Action if criteria met
     action_result = None
     if decision.auto_execute:
-        dispute["auto_executed"] = True
         if decision.recommended_action == "CONTEST":
             carrier_info = pod_records[0] if pod_records else {"carrier": "UPS", "tracking_number": "1Z999AA10123456784"}
             paypal_res = await paypal_client.provide_evidence(
@@ -552,6 +551,7 @@ async def _triage_dispute(dispute: Dict[str, Any]):
                 notes=decision.reasoning,
                 seller_id=dispute["seller_id"]
             )
+            dispute["auto_executed"] = True
             dispute["action_taken"] = "EVIDENCE_SUBMITTED"
             dispute["status"] = "UNDER_REVIEW"
             action_result = paypal_res

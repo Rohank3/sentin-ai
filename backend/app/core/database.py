@@ -6,8 +6,18 @@ from app.core.config import settings
 class Base(DeclarativeBase):
     pass
 
+def get_async_database_url(url: str) -> str:
+    """Normalize database connection URL for SQLAlchemy asyncpg (handles Render postgres://)."""
+    if not url:
+        return url
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
 engine = create_async_engine(
-    settings.database_url,
+    get_async_database_url(settings.database_url),
     echo=settings.debug,
     future=True,
     pool_pre_ping=True

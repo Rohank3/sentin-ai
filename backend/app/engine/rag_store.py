@@ -174,7 +174,7 @@ class RAGStore:
             client = Elasticsearch(
                 settings.elastic_url,
                 api_key=settings.elastic_api_key if settings.elastic_api_key else None,
-                request_timeout=2
+                request_timeout=5
             )
             if client.ping():
                 self.elastic_client = client

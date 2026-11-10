@@ -1,0 +1,89 @@
+# Render Blueprint Specification for Sentin AI
+# Documentation: https://render.com/docs/blueprint-spec
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Backend API Service (FastAPI / Python)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sentin-ai-backend
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_NAME
+        value: Sentin AI
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentin-ai-db
+          property: connectionString
+      - key: ELASTIC_URL
+        sync: false
+      - key: ELASTIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_BUSINESS_ACCOUNT
+        sync: false
+      - key: PAYPAL_BUYER_ACCOUNT
+        sync: false
+      - key: PAYPAL_SELLER_ID
+        value: seller_acme
+      - key: AUTO_TRIAGE_ENABLED
+        value: true
+      - key: MAX_AUTO_EXECUTE_AMOUNT
+        value: 100.00
+      - key: MIN_AUTO_EXECUTE_WIN_PROB
+        value: 0.70
+      - key: MAX_CUSTOMER_RISK_SCORE
+        value: 0.50
+
+  # ---------------------------------------------------------------------------
+  # 2. Frontend Dashboard Service (Next.js 14)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sentin-ai-frontend
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NEXT_PUBLIC_APP_NAME
+        value: Sentin AI
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: sentin-ai-backend
+          property: host
+      - key: NEXT_PUBLIC_AG_GRID_LICENSE_KEY
+        sync: false
+
+# -----------------------------------------------------------------------------
+# 3. Managed PostgreSQL Database
+# -----------------------------------------------------------------------------
+databases:
+  - name: sentin-ai-db
+    databaseName: sentin_ai
+    user: sentin_user
+    region: oregon
+    plan: free

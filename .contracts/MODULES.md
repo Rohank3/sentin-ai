@@ -20,7 +20,7 @@
 | Schemas | `backend/app/models/schemas.py` | Tech Lead | **STABLE** | `dev` | N/A | Pydantic request/response models |
 | Main App | `backend/app/main.py` | Tech Lead | **STABLE** | `dev` | N/A | FastAPI entrypoint with CORS + routers |
 | Disputes API | `backend/app/api/routes_disputes.py` | Tech Lead | **WIP** | `dev` | In-memory `SEED_DISPUTES` | In-memory CRUD, stats, and triage endpoints operational; PostgreSQL AsyncSession persistence pending |
-| Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **WIP** | `dev` | None | Verified ingestion; 10,000-event deduplication; process-local persistence; real triage handoff pending |
+| Webhooks API | `backend/app/api/routes_webhooks.py` | PayPal Dev | **STABLE** | `dev` | None | Verified ingestion; 10,000-event deduplication; PostgreSQL persistence; automated background AI triage & extended refund/reversal handlers; 36 unit tests passing |
 | Simulate API | `backend/app/api/routes_simulate.py` | PayPal Dev | **STABLE** | `dev` | Explicit SIM- demo records | Local scenarios; preserves other owners' triage interface |
 | PayPal Client | `backend/app/core/paypal_client.py` | PayPal Dev | **STABLE** | `dev` | Marked simulated responses | Real Sandbox OAuth verified; capture resolution, refund idempotency, note bounding, and 33 unit tests passing |
 | AI Agent | `backend/app/engine/agent.py` | AI Dev | **STABLE** | `dev` | N/A | Gemini 2.0 Flash structured outputs + deterministic heuristic fallback engine |
