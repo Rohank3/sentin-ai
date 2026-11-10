@@ -15,6 +15,10 @@ import { AgStudio } from "ag-studio-react";
 import { studioTheme, type AgReportState } from "ag-studio";
 import { colorSchemeDarkBlue } from "ag-grid-community";
 import { DisputeSummary } from "@/lib/api";
+import { initAgEnterprise } from "@/lib/agGridLicense";
+
+// Initialize AG Grid Enterprise & AG Studio licenses and modules
+initAgEnterprise();
 
 const sentinStudioTheme = studioTheme.withPart(colorSchemeDarkBlue);
 
