@@ -26,6 +26,10 @@ services:
         fromDatabase:
           name: sentin-ai-db
           property: connectionString
+      - key: ELASTIC_URL
+        sync: false
+      - key: ELASTIC_API_KEY
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: PAYPAL_CLIENT_ID
