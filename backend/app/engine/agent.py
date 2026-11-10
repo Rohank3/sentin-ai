@@ -6,10 +6,13 @@ disputes, retrieve context via RAG, evaluate EV, and determine autonomous execut
 
 from typing import Dict, Any, Optional, List
 import json
+import logging
 
 from app.core.config import settings
 from app.models.schemas import AIDecision
 from app.engine.ev_calculator import calculate_ev
+
+logger = logging.getLogger(__name__)
 
 
 class ClaimsAgent:
@@ -88,15 +91,22 @@ Determine:
 5. Key confidence factors listing 2 to 4 bullet points.
 """
 
-                response = self.client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=AIDecision,
-                        temperature=0.1
-                    )
-                )
+                response = None
+                for model_candidate in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
+                    try:
+                        response = self.client.models.generate_content(
+                            model=model_candidate,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json",
+                                response_schema=AIDecision,
+                                temperature=0.1
+                            )
+                        )
+                        if response:
+                            break
+                    except Exception as model_err:
+                        logger.debug("Gemini model %s unavailable: %s", model_candidate, model_err)
 
                 decision: Optional[AIDecision] = None
                 if getattr(response, "parsed", None):
