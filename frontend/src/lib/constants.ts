@@ -6,22 +6,8 @@
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "Sentin AI";
 export const APP_TAGLINE = "Autonomous PayPal Dispute Command Center & Risk Arbitrator";
 
-const getApiBaseUrl = (): string => {
-  const raw = process.env.NEXT_PUBLIC_API_URL;
-  if (!raw || raw.trim() === "") {
-    if (typeof window !== "undefined" && window.location.hostname.includes("onrender.com")) {
-      return "https://sentin-ai-backend.onrender.com";
-    }
-    return "http://localhost:8000";
-  }
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed.replace(/\/+$/, "");
-  }
-  return `https://${trimmed}`.replace(/\/+$/, "");
-};
-
-export const API_BASE_URL = getApiBaseUrl();
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export const DISPUTE_STATUS = {
   OPEN: "OPEN",
