@@ -16,6 +16,8 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
       - key: APP_NAME
         value: Sentin AI
       - key: APP_ENV
